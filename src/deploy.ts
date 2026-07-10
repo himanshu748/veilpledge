@@ -4,13 +4,16 @@
  * Non-interactive: scaffold → npm run setup runs straight through.
  * No readline prompts, no .midnight-seed file.
  */
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { resolveNetwork, getOrCreateSeed, recordDeployment } from './network';
 import { createWallet, persistWalletState, unshieldedToken, type WalletContext } from './wallet';
-import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocket } from 'ws';
 import * as Rx from 'rxjs';
+import { loadVeilPledgeContract, zkConfigPath } from './compiled-contract';
+import {
+  createVeilPledgePrivateState,
+  PRIVATE_STATE_ID,
+  PRIVATE_STATE_STORE,
+} from './private-state';
 
 // Midnight SDK imports
 import { deployContract } from '@midnight-ntwrk/midnight-js-contracts';
@@ -18,7 +21,6 @@ import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
-import { CompiledContract } from '@midnight-ntwrk/compact-js';
 
 // @ts-expect-error Required for wallet sync
 globalThis.WebSocket = WebSocket;
@@ -61,21 +63,7 @@ async function waitForProofServer(maxAttempts = 60, delayMs = 2000): Promise<boo
 
 // ─── Compiled contract loading ─────────────────────────────────────────────────
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const zkConfigPath = path.resolve(__dirname, '..', 'contracts', 'managed', 'hello-world');
-const contractPath = path.join(zkConfigPath, 'contract', 'index.js');
-
-if (!fs.existsSync(contractPath)) {
-  console.error('\n❌ Contract not compiled! Run: npm run compile\n');
-  process.exit(1);
-}
-
-const HelloWorld = await import(pathToFileURL(contractPath).href);
-
-const compiledContract = CompiledContract.make('hello-world', HelloWorld.Contract).pipe(
-  CompiledContract.withVacantWitnesses,
-  CompiledContract.withCompiledFileAssets(zkConfigPath),
-);
+const { compiledContract } = await loadVeilPledgeContract();
 
 // ─── Providers ─────────────────────────────────────────────────────────────────
 
@@ -108,7 +96,7 @@ async function createProviders(walletCtx: WalletContext) {
 
   return {
     privateStateProvider: levelPrivateStateProvider({
-      privateStateStoreName: 'hello-world-state',
+      privateStateStoreName: PRIVATE_STATE_STORE,
       accountId,
       privateStoragePasswordProvider: () => privateStatePassword,
     }),
@@ -276,12 +264,15 @@ async function main() {
   const MAX_RETRIES = 20;
   const RETRY_DELAY_MS = 5000;
   let deployed: Awaited<ReturnType<typeof deployContract>> | undefined;
+  const initialPrivateState = createVeilPledgePrivateState();
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       deployed = await deployContract(providers, {
         compiledContract: compiledContract as any,
         args: [],
+        privateStateId: PRIVATE_STATE_ID,
+        initialPrivateState,
       });
       break;
     } catch (err: any) {
