@@ -142,20 +142,21 @@ async function main() {
     let running = true;
     while (running) {
       console.log('─── Menu ───────────────────────────────────────────────────────');
-      console.log('  1. Store a message');
-      console.log('  2. Read current message');
-      console.log('  3. Check wallet balance');
-      console.log('  4. Exit\n');
+      console.log('  1. Create a pledge');
+      console.log('  2. Complete the active pledge');
+      console.log('  3. Read public pledge state');
+      console.log('  4. Check wallet balance');
+      console.log('  5. Exit\n');
 
       const choice = await rl.question('  Your choice: ');
 
       switch (choice.trim()) {
         case '1': {
-          const message = await rl.question('  Enter your message: ');
+          const goal = await rl.question('  Enter your public pledge: ');
           console.log('\n  Submitting transaction (this may take 30-60 seconds)...');
           try {
-            const tx = await deployed.callTx.storeMessage(message);
-            console.log(`\n  ✅ Message stored: "${message}"`);
+            const tx = await deployed.callTx.createPledge(goal);
+            console.log(`\n  ✅ Pledge created: "${goal}"`);
             console.log(`  Transaction ID: ${tx.public.txId}`);
             console.log(`  Block height: ${tx.public.blockHeight}\n`);
           } catch (error) {
@@ -165,16 +166,12 @@ async function main() {
         }
 
         case '2': {
-          console.log('\n  Reading message from blockchain...');
+          console.log('\n  Proving private ownership and completing the pledge...');
           try {
-            const contractState = await providers.publicDataProvider.queryContractState(deployment.address);
-            if (contractState) {
-              const ledgerState = VeilPledge.ledger(contractState.data);
-              const message = Buffer.from(ledgerState.message).toString();
-              console.log(`\n  📋 Current message: "${message}"\n`);
-            } else {
-              console.log('\n  📋 No message found (contract state empty)\n');
-            }
+            const tx = await deployed.callTx.completePledge();
+            console.log('\n  ✅ Pledge completed');
+            console.log(`  Transaction ID: ${tx.public.txId}`);
+            console.log(`  Block height: ${tx.public.blockHeight}\n`);
           } catch (error) {
             console.error('\n  ❌ Failed:', error instanceof Error ? error.message : error);
           }
@@ -182,6 +179,34 @@ async function main() {
         }
 
         case '3': {
+          console.log('\n  Reading public state from the blockchain...');
+          try {
+            const contractState = await providers.publicDataProvider.queryContractState(deployment.address);
+            if (contractState) {
+              const ledgerState = VeilPledge.ledger(contractState.data);
+              const status = ledgerState.state === VeilPledge.PledgeState.ACTIVE
+                ? 'ACTIVE'
+                : 'OPEN';
+              const goal = ledgerState.goal.is_some
+                ? ledgerState.goal.value
+                : '(no active pledge)';
+              const commitment = Buffer.from(ledgerState.ownerCommitment).toString('hex');
+
+              console.log(`\n  Status:              ${status}`);
+              console.log(`  Goal:                ${goal}`);
+              console.log(`  Sequence:            ${ledgerState.sequence}`);
+              console.log(`  Completed pledges:   ${ledgerState.completionCount}`);
+              console.log(`  Owner commitment:    ${commitment}\n`);
+            } else {
+              console.log('\n  No indexed contract state found\n');
+            }
+          } catch (error) {
+            console.error('\n  ❌ Failed:', error instanceof Error ? error.message : error);
+          }
+          break;
+        }
+
+        case '4': {
           console.log('\n  Checking balance...');
           const currentState = await walletCtx.wallet.waitForSyncedState();
           const currentBalance = currentState.unshielded.balances[unshieldedToken().raw] ?? 0n;
@@ -191,13 +216,13 @@ async function main() {
           break;
         }
 
-        case '4':
+        case '5':
           running = false;
           console.log('\n  👋 Goodbye!\n');
           break;
 
         default:
-          console.log('\n  ❌ Invalid choice. Please enter 1-4.\n');
+          console.log('\n  ❌ Invalid choice. Please enter 1-5.\n');
       }
     }
 

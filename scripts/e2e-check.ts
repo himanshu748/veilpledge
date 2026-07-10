@@ -45,7 +45,7 @@ async function main() {
   }
 
   // 2. Build wallet and providers
-  const { compiledContract } = await loadVeilPledgeContract();
+  const { contractModule: VeilPledge, compiledContract } = await loadVeilPledgeContract();
 
   const walletCtx = await createWallet({ network, networkConfig, seed: SEED });
   const state = await walletCtx.wallet.waitForSyncedState();
@@ -101,9 +101,23 @@ async function main() {
     fail(`queryContractState returned null for ${deployment.address}`);
   }
 
+  const ledgerState = VeilPledge.ledger(onChainState.data);
+  if (ledgerState.state !== VeilPledge.PledgeState.OPEN) {
+    fail(`Expected a newly deployed OPEN pledge board; received state ${ledgerState.state}`);
+  }
+  if (ledgerState.goal.is_some) {
+    fail('Expected a newly deployed contract to have no active pledge');
+  }
+  if (ledgerState.sequence !== 1n || ledgerState.completionCount !== 0n) {
+    fail(
+      `Unexpected counters: sequence=${ledgerState.sequence}, completionCount=${ledgerState.completionCount}`,
+    );
+  }
+
   console.log(`✅ e2e-check passed`);
   console.log(`   contractAddress: ${deployment.address}`);
   console.log(`   network:         ${network}`);
+  console.log(`   pledgeState:     OPEN`);
 
   await walletCtx.wallet.stop();
   process.exit(0);
