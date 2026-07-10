@@ -64,6 +64,8 @@ and the
 - Node.js 22 or newer (`.nvmrc` uses Node 22)
 - Docker Desktop with Compose v2 for the local proof server/devnet
 - Compact CLI 0.5.1 and compiler 0.31.1
+- Preview-compatible runtime: Midnight.js 4.1.1, ledger 8.1.0, and proof
+  server 8.1.0 (all pinned in this repository)
 
 Install Compact using the current official command:
 
@@ -89,7 +91,9 @@ The compiler writes generated contract code, ZK IR, and proving/verifying keys
 to `contracts/managed/veilpledge/`. Generated artifacts are gitignored and must
 be recreated from the Compact source.
 
-The simulator suite has seven tests covering:
+The suite has ten tests: seven Compact simulator checks plus three checks that
+private-state passwords are strong and validated before deployment. The
+contract checks cover:
 
 - deterministic initialization;
 - public pledge creation and unchanged local private state;
@@ -126,8 +130,17 @@ On first use the script creates a Preview wallet, prints its address and the
 funding, and deploys automatically. Verify the public deployment with:
 
 ```bash
-npm run test:e2e
-npm run cli
+npm run test:e2e -- --network preview
+```
+
+The tracked public record in `deployments/preview.json` makes that verification
+work from a clean clone without a wallet seed, private state, signing key, or
+proof server. It decodes the indexed ledger and checks lifecycle invariants, so
+it remains valid after pledges are created or completed. The owner CLI uses the
+gitignored local private state:
+
+```bash
+npm run cli -- --network preview
 ```
 
 The deploy command writes network, contract address, and wallet seed to the
@@ -138,16 +151,23 @@ Copy only the network and contract address into the evidence section below.
 
 | Field | Value |
 | --- | --- |
-| Network | Pending Preview deployment |
-| Contract address | Pending Preview deployment |
-| Deployment date | Pending Preview deployment |
+| Network | Midnight Preview |
+| Contract address | `03a38b13de46c09f93621bbbc97ff537bada6f341066750a42de5a60e0985a39` |
+| Deployment transaction | `e5495322fad11d200849f5be76d8b475b4019f8331bd4318a5a5a8a9fc996ab2` |
+| Block | `1545814` |
+| Deployment date | 2026-07-10 14:00:42 UTC |
 
-Screenshots belong in `docs/screenshots/`:
+Submission screenshots:
 
-- `compile.png` — successful compile output with both circuits listed;
-- `tests.png` — all simulator tests passing; and
-- `deployment.png` — Preview deployment output with only the public contract
-  address visible.
+- [`compile.png`](docs/screenshots/compile.png) — successful Compact compilation;
+- [`tests.png`](docs/screenshots/tests.png) — all ten tests passing; and
+- [`deployment.png`](docs/screenshots/deployment.png) — public on-chain Preview
+  verification binding the contract address to its indexed `ContractDeploy`
+  transaction and block. This is verification evidence, not a replayed deploy.
+
+Each PNG is rendered directly from the corresponding literal terminal
+transcript in [`docs/evidence/`](docs/evidence/); no output lines are manually
+added.
 
 ## Level 1 submission checklist
 
@@ -158,10 +178,10 @@ Screenshots belong in `docs/screenshots/`:
 - [x] Initial product idea documented
 - [x] Local setup instructions documented
 - [x] At least five meaningful Git commits
-- [ ] Docker proof server/devnet available
-- [ ] Contract deployed to Preview or Preprod
-- [ ] Public contract address added above
-- [ ] Compile, tests, and deployment screenshots added
+- [x] Docker proof server/devnet available
+- [x] Contract deployed to Preview or Preprod
+- [x] Public contract address added above
+- [x] Compile, tests, and on-chain deployment verification screenshots added
 - [ ] Public GitHub repository connected to Rise In
 
 ## Limitations and next steps
@@ -182,6 +202,7 @@ selectively disclosed or encrypted pledge text.
 ```text
 veilpledge/
 ├── contracts/veilpledge.compact      # Compact source
+├── deployments/preview.json           # Public Preview deployment record
 ├── scripts/e2e-check.ts               # Public deployment verification
 ├── src/
 │   ├── private-state.ts               # Local secret and witness
@@ -189,6 +210,7 @@ veilpledge/
 │   ├── deploy.ts                      # Local/Preview/Preprod deployment
 │   └── cli.ts                         # Create, complete, and inspect pledges
 ├── tests/                              # Simulator and privacy tests
+├── docs/evidence/                      # Literal command transcripts
 ├── docs/screenshots/                   # Submission evidence
 └── docker-compose.yml                  # Local node/indexer/proof server
 ```
