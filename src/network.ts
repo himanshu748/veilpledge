@@ -110,8 +110,22 @@ export function saveState(state: NetworkState, opts: FsOptions = {}): void {
   const p = statePath(opts);
   // Write to a sibling tmp file then rename → atomic on POSIX.
   const tmp = `${p}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`);
-  fs.renameSync(tmp, p);
+  try {
+    fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+    fs.renameSync(tmp, p);
+    // The state contains wallet seeds. Enforce a private mode even when the
+    // caller's umask is permissive or this replaces an older scaffold file.
+    fs.chmodSync(p, 0o600);
+  } finally {
+    // A handled write/rename failure must not leave a seed-bearing temporary
+    // file in the worktree. SIGKILL/power-loss leftovers are separately
+    // gitignored and removed by `npm run clean`.
+    try {
+      if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+    } catch {
+      // best-effort cleanup only
+    }
+  }
 }
 
 export function parseNetworkFlag(argv: string[]): NetworkId | null {

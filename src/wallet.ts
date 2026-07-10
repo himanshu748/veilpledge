@@ -9,13 +9,13 @@ import { Buffer } from 'buffer';
 import * as ledger from '@midnight-ntwrk/ledger-v8';
 import { unshieldedToken } from '@midnight-ntwrk/ledger-v8';
 import { setNetworkId, getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
-import { WalletFacade } from '@midnight-ntwrk/wallet-sdk-facade';
+import { InMemoryTransactionHistoryStorage } from '@midnight-ntwrk/wallet-sdk-abstractions';
+import { mergeWalletEntries, WalletEntrySchema, WalletFacade } from '@midnight-ntwrk/wallet-sdk-facade';
 import { DustWallet } from '@midnight-ntwrk/wallet-sdk-dust-wallet';
 import { HDWallet, Roles } from '@midnight-ntwrk/wallet-sdk-hd';
 import { ShieldedWallet } from '@midnight-ntwrk/wallet-sdk-shielded';
 import {
   createKeystore,
-  NoOpTransactionHistoryStorage,
   PublicKey,
   UnshieldedWallet,
 } from '@midnight-ntwrk/wallet-sdk-unshielded-wallet';
@@ -106,7 +106,7 @@ export async function createWallet(opts: CreateWalletOptions): Promise<WalletCon
     },
     provingServerUrl: new URL(opts.networkConfig.proofServer),
     relayURL: new URL(opts.networkConfig.node.replace(/^http/, 'ws')),
-    txHistoryStorage: new NoOpTransactionHistoryStorage(),
+    txHistoryStorage: new InMemoryTransactionHistoryStorage(WalletEntrySchema, mergeWalletEntries),
     costParameters: { additionalFeeOverhead: 300_000_000_000_000n, feeBlocksMargin: 5 },
   };
 

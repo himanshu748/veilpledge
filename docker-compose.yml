@@ -55,13 +55,17 @@ services:
     # no shell or curl/wget binaries inside, so `docker compose --wait` cannot
     # gate on it. The deploy script polls the proof-server from the host side
     # before submitting transactions (see waitForProofServer in src/deploy.ts).
-    # Pinned to 8.0.3, NOT a 7.x: proof-server 7.x (all patches tested: 7.0.0
+    # Preview currently requires proof-server 8.1.0 per the official
+    # compatibility matrix. Pinned, rather than floating, so proof generation
+    # remains reproducible across developer machines.
+    #
+    # Do not downgrade to a 7.x: proof-server 7.x (all patches tested: 7.0.0
     # through 7.0.3) hangs in proof generation on Apple Silicon Macs running
     # Docker Desktop — the actix worker thread spins at 100% CPU forever after
     # receiving /prove, with no log output, no memory growth, and no progress.
-    # The same image runs fine on x86_64 Linux. 8.0.3 fixed this; never bump
+    # The same image runs fine on x86_64 Linux. 8.x fixed this; never bump
     # downward into the 7.x line without re-validating on macOS arm64.
-    image: midnightntwrk/proof-server:8.0.3
+    image: midnightntwrk/proof-server:8.1.0
     container_name: veilpledge-proof-server
     command: ["midnight-proof-server -v"]
     ports:

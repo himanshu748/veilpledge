@@ -13,6 +13,7 @@ import {
   createVeilPledgePrivateState,
   PRIVATE_STATE_ID,
   PRIVATE_STATE_STORE,
+  resolvePrivateStatePassword,
 } from './private-state';
 
 // Midnight SDK imports
@@ -24,6 +25,10 @@ import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config
 
 // @ts-expect-error Required for wallet sync
 globalThis.WebSocket = WebSocket;
+
+// The LevelDB provider stores encrypted private state and signing keys. Keep
+// the database private even when the invoking shell has a permissive umask.
+process.umask(0o077);
 
 // ─── Network configuration ─────────────────────────────────────────────────────
 //
@@ -68,10 +73,11 @@ const { compiledContract } = await loadVeilPledgeContract();
 // ─── Providers ─────────────────────────────────────────────────────────────────
 
 async function createProviders(walletCtx: WalletContext) {
-  // The SDK requires the private-state password to be at least 16 characters.
-  // The default below is a placeholder for local devnet only — set a strong
-  // password via PRIVATE_STATE_PASSWORD when you move to a non-local target.
-  const privateStatePassword = process.env.PRIVATE_STATE_PASSWORD?.trim() || 'Local-Devnet-Development-Placeholder-1';
+  const privateStatePassword = resolvePrivateStatePassword(
+    SEED,
+    network,
+    process.env.PRIVATE_STATE_PASSWORD,
+  );
   const state = await walletCtx.wallet.waitForSyncedState();
 
   const walletProvider = {
@@ -198,26 +204,118 @@ async function main() {
 
   // Register for DUST.
   console.log('─── DUST Token Setup ───────────────────────────────────────────\n');
-  const dustState = await Rx.firstValueFrom(walletCtx.wallet.state().pipe(Rx.filter((s) => s.isSynced)));
-
-  const unregisteredUtxos = dustState.unshielded.availableCoins.filter(
-    (c: any) => !c.meta?.registeredForDustGeneration,
-  );
-  if (unregisteredUtxos.length > 0) {
-    console.log(`  Registering ${unregisteredUtxos.length} NIGHT UTXOs for DUST generation...`);
-    // The signDustRegistration callback (3rd arg) already produces a recipe
-    // with N signatures matching N inputs. Do NOT call signRecipe again — that
-    // would double-sign and the chain rejects with InputsSignaturesLengthMismatch
-    // (Custom error 192). Matches upstream example-counter and example-bboard.
-    const recipe = await walletCtx.wallet.registerNightUtxosForDustGeneration(
-      unregisteredUtxos,
-      walletCtx.unshieldedKeystore.getPublicKey(),
-      (payload) => walletCtx.unshieldedKeystore.signData(payload),
+  // Preview RPC WebSockets occasionally close normally while the wallet is
+  // watching a submitted transaction. The transaction may still land, so a
+  // blind retry risks submitting the same registration twice. Re-read live
+  // wallet state before every attempt and stop as soon as the UTXO is marked
+  // registered. Custom error 138 is BalanceCheckOverspend in the current node
+  // runtime; immediately after faucet funding it can also be a transient race
+  // between the indexer-visible UTXO and the ledger context used for validation.
+  const MAX_REGISTRATION_ATTEMPTS = 5;
+  const registrationDeadline = Date.now() + 5 * 60_000;
+  let lastRegistrationWaitLog = 0;
+  for (let attempt = 1; attempt <= MAX_REGISTRATION_ATTEMPTS;) {
+    const registrationState = await Rx.firstValueFrom(
+      walletCtx.wallet.state().pipe(Rx.filter((s) => s.isSynced)),
     );
-    const finalized = await walletCtx.wallet.finalizeRecipe(recipe);
-    await walletCtx.wallet.submitTransaction(finalized);
+    const unregisteredUtxos = registrationState.unshielded.availableCoins.filter(
+      (c: any) => !c.meta?.registeredForDustGeneration,
+    );
+
+    if (unregisteredUtxos.length === 0) {
+      if (attempt > 1) console.log('  NIGHT UTXO registration confirmed.');
+      break;
+    }
+
+    // Wallet SDK <= 1.1 could construct a registration whose
+    // allow_fee_payment was below the transaction fee. Preview rejects that as
+    // BalanceCheckOverspend (custom error 138). Estimate against the same live
+    // UTXOs and wait until the highest-generation guaranteed input can cover
+    // the fee before constructing a fresh transaction.
+    const { fee, dustGenerationEstimations } = await walletCtx.wallet.estimateRegistration(
+      unregisteredUtxos,
+    );
+    const generated = dustGenerationEstimations.reduce(
+      (maximum, item) => item.dust.generatedNow > maximum ? item.dust.generatedNow : maximum,
+      0n,
+    );
+    if (generated < fee) {
+      if (Date.now() >= registrationDeadline) {
+        throw new Error(
+          `DUST registration fee was not covered within 5 minutes ` +
+            `(generated ${generated.toLocaleString()} of ${fee.toLocaleString()}).`,
+        );
+      }
+      if (Date.now() - lastRegistrationWaitLog >= 10_000) {
+        console.log(
+          `  Generating registration DUST: ${generated.toLocaleString()} / ${fee.toLocaleString()}...`,
+        );
+        lastRegistrationWaitLog = Date.now();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      continue;
+    }
+
+    console.log(
+      `  Registering ${unregisteredUtxos.length} NIGHT UTXOs for DUST generation` +
+        (attempt > 1 ? ` (attempt ${attempt}/${MAX_REGISTRATION_ATTEMPTS})...` : '...'),
+    );
+
+    try {
+      // The signDustRegistration callback (3rd arg) already produces a recipe
+      // with N signatures matching N inputs. Do NOT call signRecipe again —
+      // doing so causes InputsSignaturesLengthMismatch (custom error 192).
+      const recipe = await walletCtx.wallet.registerNightUtxosForDustGeneration(
+        unregisteredUtxos,
+        walletCtx.unshieldedKeystore.getPublicKey(),
+        (payload) => walletCtx.unshieldedKeystore.signData(payload),
+      );
+      const finalized = await walletCtx.wallet.finalizeRecipe(recipe);
+      await walletCtx.wallet.submitTransaction(finalized);
+      break;
+    } catch (error: any) {
+      // Effect's FiberFailure keeps the useful nested SDK cause in its custom
+      // toString(); `.message` only contains the outer "Transaction submission
+      // error" text. Include both forms so Preview WebSocket closures and node
+      // error codes remain visible to the retry classifier.
+      const messages: string[] = [error?.name ?? '', String(error), error?.stack ?? ''];
+      let cursor: any = error;
+      for (let depth = 0; cursor && depth < 6; depth++) {
+        messages.push(cursor?.message ?? String(cursor));
+        cursor = cursor?.cause;
+      }
+      const diagnostic = messages.join(' | ');
+      const retryable =
+        diagnostic.includes('Custom error: 138') ||
+        diagnostic.includes('disconnected from') ||
+        diagnostic.includes('Normal Closure') ||
+        diagnostic.includes('ECONNRESET') ||
+        diagnostic.includes('ETIMEDOUT');
+
+      if (!retryable) throw error;
+
+      console.log('  Registration not yet confirmed; refreshing wallet state in 10s...');
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+
+      // A closed submission socket is ambiguous: the transaction can still
+      // have reached the node. Confirm once more after the delay, including
+      // after the final attempt, before deciding that registration failed.
+      const refreshedState = await Rx.firstValueFrom(
+        walletCtx.wallet.state().pipe(Rx.filter((s) => s.isSynced)),
+      );
+      const stillUnregistered = refreshedState.unshielded.availableCoins.some(
+        (coin: any) => !coin.meta?.registeredForDustGeneration,
+      );
+      if (!stillUnregistered) {
+        console.log('  NIGHT UTXO registration confirmed.');
+        break;
+      }
+      if (attempt === MAX_REGISTRATION_ATTEMPTS) throw error;
+      attempt += 1;
+    }
   }
 
+  const dustState = await Rx.firstValueFrom(walletCtx.wallet.state().pipe(Rx.filter((s) => s.isSynced)));
   if (dustState.dust.balance(new Date()) === 0n) {
     console.log('  Waiting for DUST tokens...');
     await Rx.firstValueFrom(

@@ -15,11 +15,18 @@ import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config
 import { resolveNetwork, getOrCreateSeed, getDeployment } from './network';
 import { createWallet, persistWalletState, unshieldedToken, type WalletContext } from './wallet';
 import { loadVeilPledgeContract, zkConfigPath } from './compiled-contract';
-import { PRIVATE_STATE_ID, PRIVATE_STATE_STORE } from './private-state';
+import {
+  PRIVATE_STATE_ID,
+  PRIVATE_STATE_STORE,
+  resolvePrivateStatePassword,
+} from './private-state';
 
 // Enable WebSocket for GraphQL subscriptions
 // @ts-expect-error Required for wallet sync
 globalThis.WebSocket = WebSocket;
+
+// Protect any LevelDB files created while opening encrypted private state.
+process.umask(0o077);
 
 const { network, config: networkConfig } = resolveNetwork();
 const SEED = getOrCreateSeed(network);
@@ -29,10 +36,11 @@ const { contractModule: VeilPledge, compiledContract } = await loadVeilPledgeCon
 // ─── Providers ─────────────────────────────────────────────────────────────────
 
 async function createProviders(walletCtx: WalletContext) {
-  // The SDK requires the private-state password to be at least 16 characters.
-  // The default below is a placeholder for local devnet only — set a strong
-  // password via PRIVATE_STATE_PASSWORD when you move to a non-local target.
-  const privateStatePassword = process.env.PRIVATE_STATE_PASSWORD?.trim() || 'Local-Devnet-Development-Placeholder-1';
+  const privateStatePassword = resolvePrivateStatePassword(
+    SEED,
+    network,
+    process.env.PRIVATE_STATE_PASSWORD,
+  );
 
   const state = await walletCtx.wallet.waitForSyncedState();
 

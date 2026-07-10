@@ -1,129 +1,173 @@
 /**
- * End-to-end smoke check for veilpledge.
+ * Public end-to-end verification for a deployed VeilPledge contract.
  *
- * Reconnects to the deployed contract, reads its ledger state, and exits 0
- * on success. Used by `npm run test:e2e` and by the project's CI workflows.
+ * This intentionally needs no wallet seed, private state, signing key, or
+ * proof server, so reviewers can run it from a clean clone. The address comes
+ * from --contract-address, MIDNIGHT_CONTRACT_ADDRESS, local gitignored state,
+ * or the tracked public deployment record (in that order).
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import { WebSocket } from 'ws';
 
-import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
-import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
-import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
-import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
-import { resolveNetwork, getOrCreateSeed, getDeployment } from '../src/network';
-import { createWallet, persistWalletState } from '../src/wallet';
-import { loadVeilPledgeContract, zkConfigPath } from '../src/compiled-contract';
-import { PRIVATE_STATE_ID, PRIVATE_STATE_STORE } from '../src/private-state';
+import { resolveNetwork, getDeployment } from '../src/network';
+import { loadVeilPledgeContract } from '../src/compiled-contract';
 
-// @ts-expect-error wallet sync requires WebSocket
+// @ts-expect-error indexer subscriptions require WebSocket
 globalThis.WebSocket = WebSocket;
 
-// ─── Network configuration ─────────────────────────────────────────────────────
-
 const { network, config: networkConfig } = resolveNetwork();
-const SEED = getOrCreateSeed(network);
 
-function fail(msg: string): never {
-  console.error(`❌ e2e-check failed: ${msg}`);
+interface PublicDeploymentRecord {
+  network: string;
+  contractAddress: string;
+  transactionHash?: string;
+  blockHeight?: number;
+  deployedAt?: string;
+}
+
+function fail(message: string): never {
+  console.error(`❌ e2e-check failed: ${message}`);
   process.exit(1);
 }
 
-function isHexAddress(s: unknown): s is string {
-  return typeof s === 'string' && /^[0-9a-fA-F]+$/.test(s) && s.length >= 32;
+function isHexAddress(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-fA-F]{64}$/.test(value);
+}
+
+function argumentValue(name: string): string | undefined {
+  const prefix = `${name}=`;
+  for (let index = 2; index < process.argv.length; index += 1) {
+    const argument = process.argv[index];
+    if (argument === name) return process.argv[index + 1];
+    if (argument.startsWith(prefix)) return argument.slice(prefix.length);
+  }
+  return undefined;
+}
+
+function loadTrackedDeployment(): PublicDeploymentRecord | null {
+  const recordPath = path.join(process.cwd(), 'deployments', `${network}.json`);
+  if (!fs.existsSync(recordPath)) return null;
+  return JSON.parse(fs.readFileSync(recordPath, 'utf8')) as PublicDeploymentRecord;
+}
+
+async function verifyTrackedDeployment(
+  record: PublicDeploymentRecord,
+  contractAddress: string,
+): Promise<void> {
+  if (!isHexAddress(record.transactionHash)) {
+    fail('Tracked deployment transaction hash is missing or invalid');
+  }
+  if (!Number.isSafeInteger(record.blockHeight) || (record.blockHeight ?? 0) < 0) {
+    fail('Tracked deployment block height is missing or invalid');
+  }
+
+  const response = await fetch(networkConfig.indexer, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      query: `
+        query VerifyDeployment($hash: HexEncoded!) {
+          transactions(offset: { hash: $hash }) {
+            hash
+            block { height }
+            contractActions { __typename address }
+          }
+        }
+      `,
+      variables: { hash: record.transactionHash },
+    }),
+  });
+  if (!response.ok) fail(`Indexer transaction query returned HTTP ${response.status}`);
+
+  const result = await response.json() as {
+    data?: {
+      transactions?: Array<{
+        hash: string;
+        block: { height: number };
+        contractActions: Array<{ __typename: string; address: string }>;
+      }>;
+    };
+    errors?: Array<{ message: string }>;
+  };
+  if (result.errors?.length) {
+    fail(`Indexer transaction query failed: ${result.errors.map((error) => error.message).join('; ')}`);
+  }
+
+  const transaction = result.data?.transactions?.find(
+    (candidate) => candidate.hash === record.transactionHash,
+  );
+  if (!transaction) fail(`Deployment transaction ${record.transactionHash} was not indexed`);
+  if (transaction.block.height !== record.blockHeight) {
+    fail(
+      `Deployment block mismatch: record=${record.blockHeight}, ` +
+        `indexer=${transaction.block.height}`,
+    );
+  }
+  const matchingDeploy = transaction.contractActions.some(
+    (action) => action.__typename === 'ContractDeploy' && action.address === contractAddress,
+  );
+  if (!matchingDeploy) {
+    fail('Tracked transaction is not the ContractDeploy action for this address');
+  }
 }
 
 async function main() {
-  // 1. Deployment sanity
-  const deployment = getDeployment(network);
-  if (!deployment) {
-    console.error(`No deploy on file for network ${network}.`);
-    process.exit(1);
-  }
-  if (!isHexAddress(deployment.address)) {
-    fail(`Deployment address missing or invalid: ${JSON.stringify(deployment, null, 2)}`);
-  }
+  const tracked = loadTrackedDeployment();
+  const local = getDeployment(network);
+  const contractAddress =
+    argumentValue('--contract-address') ??
+    process.env.MIDNIGHT_CONTRACT_ADDRESS?.trim() ??
+    local?.address ??
+    tracked?.contractAddress;
 
-  // 2. Build wallet and providers
-  const { contractModule: VeilPledge, compiledContract } = await loadVeilPledgeContract();
-
-  const walletCtx = await createWallet({ network, networkConfig, seed: SEED });
-  const state = await walletCtx.wallet.waitForSyncedState();
-  // Persist the sync state — saves time on the next e2e-check invocation in CI
-  // when run against the same persistent wallet directory.
-  await persistWalletState(network, walletCtx);
-
-  const zkConfigProvider = new NodeZkConfigProvider(zkConfigPath);
-  const walletProvider = {
-    getCoinPublicKey: () => state.shielded.coinPublicKey.toHexString(),
-    getEncryptionPublicKey: () => state.shielded.encryptionPublicKey.toHexString(),
-    async balanceTx() {
-      throw new Error('e2e-check is read-only and should not balance transactions');
-    },
-    submitTx() {
-      throw new Error('e2e-check is read-only and should not submit transactions');
-    },
-  } as any;
-
-  const providers = {
-    privateStateProvider: levelPrivateStateProvider({
-      privateStateStoreName: PRIVATE_STATE_STORE,
-      accountId: walletCtx.unshieldedKeystore.getBech32Address().toString(),
-      // SDK requires ≥16 chars. e2e-check is read-only so we don't expose
-      // the env-var override here — match the deploy script's local-devnet default.
-      privateStoragePasswordProvider: () => 'Local-Devnet-Development-Placeholder-1',
-    }),
-    publicDataProvider: indexerPublicDataProvider(networkConfig.indexer, networkConfig.indexerWS),
-    zkConfigProvider,
-    proofProvider: httpClientProofProvider(networkConfig.proofServer, zkConfigProvider),
-    walletProvider,
-    midnightProvider: walletProvider,
-  };
-
-  // 3. Reconnect to the deployed contract — proves callTx interface is wired
-  try {
-    await findDeployedContract(providers, {
-      contractAddress: deployment.address,
-      compiledContract: compiledContract as any,
-      privateStateId: PRIVATE_STATE_ID,
-    });
-  } catch (err: any) {
-    await walletCtx.wallet.stop();
-    fail(`findDeployedContract threw: ${err?.message ?? err}`);
-  }
-
-  // 4. Read the on-chain contract state via the public data provider — proves
-  // the contract is indexed and queryable on the chain itself, not just that
-  // we know how to construct the local handle.
-  const onChainState = await providers.publicDataProvider.queryContractState(deployment.address);
-  if (!onChainState) {
-    await walletCtx.wallet.stop();
-    fail(`queryContractState returned null for ${deployment.address}`);
-  }
-
-  const ledgerState = VeilPledge.ledger(onChainState.data);
-  if (ledgerState.state !== VeilPledge.PledgeState.OPEN) {
-    fail(`Expected a newly deployed OPEN pledge board; received state ${ledgerState.state}`);
-  }
-  if (ledgerState.goal.is_some) {
-    fail('Expected a newly deployed contract to have no active pledge');
-  }
-  if (ledgerState.sequence !== 1n || ledgerState.completionCount !== 0n) {
+  if (!isHexAddress(contractAddress)) {
     fail(
-      `Unexpected counters: sequence=${ledgerState.sequence}, completionCount=${ledgerState.completionCount}`,
+      `No valid contract address for ${network}. Pass --contract-address, set ` +
+        'MIDNIGHT_CONTRACT_ADDRESS, or add a tracked deployment record.',
     );
   }
 
-  console.log(`✅ e2e-check passed`);
-  console.log(`   contractAddress: ${deployment.address}`);
-  console.log(`   network:         ${network}`);
-  console.log(`   pledgeState:     OPEN`);
+  const { contractModule: VeilPledge } = await loadVeilPledgeContract();
+  const publicDataProvider = indexerPublicDataProvider(
+    networkConfig.indexer,
+    networkConfig.indexerWS,
+  );
+  const onChainState = await publicDataProvider.queryContractState(contractAddress);
+  if (!onChainState) fail(`Indexer returned no contract state for ${contractAddress}`);
 
-  await walletCtx.wallet.stop();
-  process.exit(0);
+  const ledger = VeilPledge.ledger(onChainState.data);
+  const isOpen = ledger.state === VeilPledge.PledgeState.OPEN;
+  const isActive = ledger.state === VeilPledge.PledgeState.ACTIVE;
+  if (!isOpen && !isActive) fail(`Unknown pledge state ${ledger.state}`);
+  if (isOpen && ledger.goal.is_some) fail('OPEN board unexpectedly has a pledge goal');
+  if (isActive && !ledger.goal.is_some) fail('ACTIVE board is missing its pledge goal');
+  if (ledger.sequence < 1n) fail(`Invalid sequence ${ledger.sequence}`);
+  if (ledger.completionCount !== ledger.sequence - 1n) {
+    fail(
+      `Counter invariant failed: sequence=${ledger.sequence}, ` +
+        `completionCount=${ledger.completionCount}`,
+    );
+  }
+
+  const hasTrackedDeployment = tracked?.contractAddress === contractAddress;
+  if (hasTrackedDeployment) await verifyTrackedDeployment(tracked, contractAddress);
+
+  console.log('PASS e2e-check passed');
+  console.log(`   contractAddress: ${contractAddress}`);
+  console.log(`   network:         ${network}`);
+  console.log(`   pledgeState:     ${isOpen ? 'OPEN' : 'ACTIVE'}`);
+  console.log(`   sequence:        ${ledger.sequence}`);
+  console.log(`   completions:     ${ledger.completionCount}`);
+  if (hasTrackedDeployment) {
+    if (tracked.transactionHash) console.log(`   deploymentTx:    ${tracked.transactionHash}`);
+    if (tracked.blockHeight !== undefined) console.log(`   deploymentBlock: ${tracked.blockHeight}`);
+    console.log('   deploymentProof: Preview indexer verified');
+  }
 }
 
-main().catch(async (err) => {
-  console.error(err);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

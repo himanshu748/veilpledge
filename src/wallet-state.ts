@@ -41,10 +41,15 @@ function statePath(network: NetworkId, kind: ChildKind, opts: FsOptions = {}): s
 }
 
 function atomicWrite(file: string, content: string): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const networkDirectory = path.dirname(file);
+  const walletDirectory = path.dirname(networkDirectory);
+  fs.mkdirSync(networkDirectory, { recursive: true, mode: 0o700 });
+  fs.chmodSync(walletDirectory, 0o700);
+  fs.chmodSync(networkDirectory, 0o700);
   const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmp, content);
+  fs.writeFileSync(tmp, content, { mode: 0o600 });
   fs.renameSync(tmp, file);
+  fs.chmodSync(file, 0o600);
 }
 
 interface VersionedState<T> {

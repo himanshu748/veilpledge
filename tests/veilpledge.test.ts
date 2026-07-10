@@ -2,9 +2,34 @@ import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { PledgeState } from '../contracts/managed/veilpledge/contract/index.js';
+import { resolvePrivateStatePassword } from '../src/private-state.js';
 import { VeilPledgeSimulator } from './veilpledge-simulator.js';
 
 setNetworkId('undeployed');
+
+describe('private-state password', () => {
+  it('derives a deterministic strong password without persisting another secret', () => {
+    const first = resolvePrivateStatePassword('00'.repeat(32), 'preview');
+    const second = resolvePrivateStatePassword('00'.repeat(32), 'preview');
+
+    expect(first).toBe(second);
+    expect(first.length).toBeGreaterThanOrEqual(16);
+    expect(first).toMatch(/[A-Z]/);
+    expect(first).toMatch(/[a-z]/);
+    expect(first).toMatch(/[0-9]/);
+    expect(first).toMatch(/[^A-Za-z0-9]/);
+  });
+
+  it('keeps explicit password overrides intact', () => {
+    expect(resolvePrivateStatePassword('00'.repeat(32), 'preview', 'My-Strong-Override-1'))
+      .toBe('My-Strong-Override-1');
+  });
+
+  it('rejects weak overrides before a deployment can be submitted', () => {
+    expect(() => resolvePrivateStatePassword('00'.repeat(32), 'preview', 'weakpassword'))
+      .toThrow();
+  });
+});
 
 describe('VeilPledge contract', () => {
   it('initializes a deterministic empty public ledger', () => {
