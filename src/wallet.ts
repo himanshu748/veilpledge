@@ -109,6 +109,17 @@ export async function createWallet(opts: CreateWalletOptions): Promise<WalletCon
 
   const restored = { shielded: false, unshielded: false, dust: false };
 
+  // The DUST ledger is a global append-only tree, so even a brand-new wallet
+  // must replay the historical events once before it can append future
+  // generation records. The SDK defaults (10 events per batch plus a 4 ms
+  // inter-batch delay) favor interactive clients, but make this one-time CI
+  // catch-up take longer than the hosted-runner window. Larger batches remove
+  // most per-batch WASM overhead while the indexer client's bounded queue still
+  // supplies backpressure. Full interactive wallets keep the SDK defaults.
+  const batchUpdates = opts.syncMode === 'public-funds'
+    ? { size: 500, timeout: 25, spacing: 0 }
+    : undefined;
+
   const walletConfig = {
     networkId,
     indexerClientConnection: {
@@ -119,6 +130,7 @@ export async function createWallet(opts: CreateWalletOptions): Promise<WalletCon
     relayURL: new URL(opts.networkConfig.node.replace(/^http/, 'ws')),
     txHistoryStorage: new InMemoryTransactionHistoryStorage(WalletEntrySchema, mergeWalletEntries),
     costParameters: { additionalFeeOverhead: 300_000_000_000_000n, feeBlocksMargin: 5 },
+    ...(batchUpdates === undefined ? {} : { batchUpdates }),
   };
 
   const wallet = await WalletFacade.init({

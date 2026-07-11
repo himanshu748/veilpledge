@@ -6,6 +6,11 @@ on:
     branches: [main]
     paths:
       - .github/workflows/preprod-deploy.yml
+      - package.json
+      - package-lock.json
+      - src/deploy.ts
+      - src/network.ts
+      - src/wallet.ts
 
 permissions:
   contents: read
@@ -17,7 +22,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     steps:
       - name: Check out repository
@@ -52,6 +57,15 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Restore public wallet sync state
+        if: steps.deployment.outputs.needed == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: .midnight-wallet-state/preprod
+          key: veilpledge-preprod-wallet-v1-${{ github.run_id }}
+          restore-keys: |
+            veilpledge-preprod-wallet-v1-
 
       - name: Install dependencies
         if: steps.deployment.outputs.needed == 'true'
@@ -118,13 +132,20 @@ jobs:
           MIDNIGHT_DUST_TIMEOUT_MS: 600000
           MIDNIGHT_FAUCET_TIMEOUT_MS: 2700000
           MIDNIGHT_WALLET_SEED: ${{ secrets.MIDNIGHT_WALLET_SEED }}
-          MIDNIGHT_WALLET_SYNC_TIMEOUT_MS: 3600000
+          MIDNIGHT_WALLET_SYNC_TIMEOUT_MS: 5400000
           MALLOC_ARENA_MAX: 2
           NODE_OPTIONS: --max-old-space-size=12288
         run: |
           echo 'The public wallet address appears near the start of this live log.'
           echo 'Fund that address at https://midnight-tmnight-preprod.nethermind.dev while this job waits.'
           node --import tsx src/deploy.ts --network preprod
+
+      - name: Preserve public wallet sync state
+        if: always() && steps.deployment.outputs.needed == 'true' && hashFiles('.midnight-wallet-state/preprod/**') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .midnight-wallet-state/preprod
+          key: veilpledge-preprod-wallet-v1-${{ github.run_id }}
 
       - name: Validate public deployment evidence
         if: steps.deployment.outputs.needed == 'true'
