@@ -57,7 +57,10 @@ export interface WalletContext {
   dustSecretKey: ReturnType<typeof ledger.DustSecretKey.fromSeed>;
   unshieldedKeystore: ReturnType<typeof createKeystore>;
   restored: { shielded: boolean; unshielded: boolean; dust: boolean };
+  started: { shielded: boolean; unshielded: boolean; dust: boolean };
 }
+
+export type WalletSyncMode = 'full' | 'public-funds';
 
 export interface CreateWalletOptions {
   network: NetworkId;
@@ -68,6 +71,12 @@ export interface CreateWalletOptions {
    * Defaults to true. Pass false to force a from-seed sync (used by tests).
    */
   restore?: boolean;
+  /**
+   * `public-funds` starts only the unshielded and DUST children. It is safe for
+   * a brand-new deployment wallet that never receives or spends shielded
+   * assets, and avoids replaying the network's entire Zswap history.
+   */
+  syncMode?: WalletSyncMode;
   cwd?: string;
 }
 
@@ -81,7 +90,9 @@ function warnRestoreFailure(kind: ChildKind, err: unknown): void {
  * available and falling back to a from-seed start when not (or when restore
  * throws, e.g. after an SDK upgrade with an incompatible state format).
  *
- * Caller is responsible for `await wallet.waitForSyncedState()` afterwards.
+ * In `full` mode the caller can use `wallet.waitForSyncedState()`. In
+ * `public-funds` mode wait for the unshielded and DUST children individually;
+ * the shielded child intentionally remains at its empty initial state.
  */
 export async function createWallet(opts: CreateWalletOptions): Promise<WalletContext> {
   setNetworkId(opts.networkConfig.networkId);
@@ -153,9 +164,34 @@ export async function createWallet(opts: CreateWalletOptions): Promise<WalletCon
     },
   });
 
-  await wallet.start(shieldedSecretKeys, dustSecretKey);
+  const started = {
+    shielded: opts.syncMode !== 'public-funds',
+    unshielded: true,
+    dust: true,
+  };
 
-  return { wallet, shieldedSecretKeys, dustSecretKey, unshieldedKeystore, restored };
+  if (started.shielded) {
+    await wallet.start(shieldedSecretKeys, dustSecretKey);
+  } else {
+    // Contract deployment pays with public tNIGHT/DUST only. Starting the
+    // shielded child would replay every historical Zswap event even though
+    // this fresh wallet cannot own any of them. The facade's submission and
+    // pending-transaction services still need to run.
+    await Promise.all([
+      wallet.unshielded.start(),
+      wallet.dust.start(dustSecretKey),
+      wallet.pendingTransactionsService.start(),
+    ]);
+  }
+
+  return {
+    wallet,
+    shieldedSecretKeys,
+    dustSecretKey,
+    unshieldedKeystore,
+    restored,
+    started,
+  };
 }
 
 /**
@@ -171,6 +207,7 @@ export async function persistWalletState(
   const next: PersistedWalletState = {};
 
   for (const kind of CHILD_KINDS) {
+    if (!ctx.started[kind]) continue;
     try {
       const child = (ctx.wallet as unknown as Record<ChildKind, { serializeState: () => Promise<unknown> }>)[kind];
       const serialized = await child.serializeState();

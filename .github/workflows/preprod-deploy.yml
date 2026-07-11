@@ -34,6 +34,18 @@ jobs:
             echo 'needed=true' >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Require stable deployment wallet seed
+        if: steps.deployment.outputs.needed == 'true'
+        shell: bash
+        env:
+          MIDNIGHT_WALLET_SEED: ${{ secrets.MIDNIGHT_WALLET_SEED }}
+        run: |
+          if [[ ! "$MIDNIGHT_WALLET_SEED" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo '::error::Configure the MIDNIGHT_WALLET_SEED repository secret as exactly 64 hexadecimal characters.'
+            exit 1
+          fi
+          echo 'Stable deployment wallet seed is configured.'
+
       - name: Use Node 22
         if: steps.deployment.outputs.needed == 'true'
         uses: actions/setup-node@v6
@@ -103,12 +115,15 @@ jobs:
       - name: Deploy to Preprod
         if: steps.deployment.outputs.needed == 'true'
         env:
+          MIDNIGHT_DUST_TIMEOUT_MS: 600000
           MIDNIGHT_FAUCET_TIMEOUT_MS: 2700000
+          MIDNIGHT_WALLET_SEED: ${{ secrets.MIDNIGHT_WALLET_SEED }}
+          MIDNIGHT_WALLET_SYNC_TIMEOUT_MS: 3600000
           MALLOC_ARENA_MAX: 2
           NODE_OPTIONS: --max-old-space-size=12288
         run: |
           echo 'The public wallet address appears near the start of this live log.'
-          echo 'Fund that address at https://faucet.preprod.midnight.network while this job waits.'
+          echo 'Fund that address at https://midnight-tmnight-preprod.nethermind.dev while this job waits.'
           node --import tsx src/deploy.ts --network preprod
 
       - name: Validate public deployment evidence

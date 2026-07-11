@@ -230,12 +230,18 @@ npm run test:e2e -- --network preprod
 ```
 
 On first use, setup creates a local Preprod deployment wallet, prints its
-address and the [Preprod faucet](https://faucet.preprod.midnight.network/),
+address and the [Preprod faucet](https://midnight-tmnight-preprod.nethermind.dev/),
 waits for funding, and deploys after the wallet has synchronized. A successful
 deployment writes only public evidence - network, contract address,
 transaction hash, block height, and deployment time - to
 `deployments/preprod.json`. The DApp build reads that record through
 `npm run web:prepare`.
+
+The one-time GitHub Actions deployment additionally requires a repository
+Actions secret named `MIDNIGHT_WALLET_SEED` containing exactly 64 hexadecimal
+characters. Keep that secret stable across reruns so a funded deployment
+address remains recoverable; never place the seed in workflow inputs, logs,
+artifacts, commits, screenshots, or issue comments.
 
 The deploy command also keeps the wallet seed and encrypted private state in
 gitignored local files. **Never commit, publish, paste, or screenshot
