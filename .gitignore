@@ -7,6 +7,13 @@ yarn-error.log*
 # Build output
 dist/
 build/
+web/dist/
+web/.vite/
+
+# Browser build artifacts regenerated from Compact output
+web/public/keys/
+web/public/zkir/
+web/src/generated/
 
 # Environment variables
 .env
