@@ -4,7 +4,10 @@
  * Non-interactive: scaffold → npm run setup runs straight through.
  * No readline prompts, no .midnight-seed file.
  */
-import { resolveNetwork, getOrCreateSeed, recordDeployment } from './network';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import { resolveNetwork, getOrCreateSeed, recordDeployment, type NetworkId } from './network';
 import { createWallet, persistWalletState, unshieldedToken, type WalletContext } from './wallet';
 import { WebSocket } from 'ws';
 import * as Rx from 'rxjs';
@@ -38,6 +41,29 @@ process.umask(0o077);
 const { network, config: networkConfig } = resolveNetwork();
 const SEED = getOrCreateSeed(network);
 
+// Deployment runs can be public CI logs. Never stringify SDK errors: custom
+// fields may contain unsubmitted transaction or proving context.
+function publicDiagnostic(value: unknown): string {
+  const raw = value instanceof Error ? value.message : String(value ?? 'Unknown error');
+  return raw
+    .replace(/\b(seed|secret|privateState|witness)\s*[:=]\s*\S+/giu, '$1=[redacted]')
+    .replace(/\b(?:0x)?[0-9a-f]{64,}\b/giu, '[redacted hex]')
+    .replace(/[A-Za-z0-9+/=_-]{160,}/gu, '[redacted payload]')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 400);
+}
+
+function logPublicFailure(error: unknown): void {
+  const name = error instanceof Error && error.name ? error.name : 'DeploymentError';
+  const message = error instanceof Error ? error.message : '';
+  console.error(`\n❌ ${name}: ${publicDiagnostic(error)}`);
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (cause instanceof Error && cause.message !== message) {
+    console.error(`   Cause: ${publicDiagnostic(cause)}`);
+  }
+}
+
 // ─── Proof server readiness ────────────────────────────────────────────────────
 //
 // The proof-server image is distroless and has no shell, so it can't run a
@@ -69,6 +95,35 @@ async function waitForProofServer(maxAttempts = 60, delayMs = 2000): Promise<boo
 // ─── Compiled contract loading ─────────────────────────────────────────────────
 
 const { compiledContract } = await loadVeilPledgeContract();
+
+// Only these finalized, on-chain fields are safe to publish. deployTxData also
+// contains signing material, the initial private state, and transaction-local
+// secrets, so it must never be spread or serialized as a whole.
+interface PublicDeploymentRecord {
+  network: Exclude<NetworkId, 'undeployed'>;
+  contractAddress: string;
+  transactionHash: string;
+  blockHeight: number;
+  deployedAt: string;
+}
+
+function writePublicDeploymentRecord(record: PublicDeploymentRecord): void {
+  const directory = path.join(process.cwd(), 'deployments');
+  const recordPath = path.join(directory, `${record.network}.json`);
+  const temporaryPath = `${recordPath}.tmp-${process.pid}-${Date.now()}`;
+
+  fs.mkdirSync(directory, { recursive: true });
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+    fs.renameSync(temporaryPath, recordPath);
+  } finally {
+    try {
+      if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+    } catch {
+      // Best-effort cleanup only; the tracked record is public data.
+    }
+  }
+}
 
 // ─── Providers ─────────────────────────────────────────────────────────────────
 
@@ -126,6 +181,8 @@ async function main() {
   console.log('─── Wallet setup ───────────────────────────────────────────────\n');
   console.log('  Creating wallet...');
   const walletCtx = await createWallet({ network, networkConfig, seed });
+  const address = walletCtx.unshieldedKeystore.getBech32Address();
+  console.log(`  Wallet Address: ${address}\n`);
   const restoredCount = Object.values(walletCtx.restored).filter(Boolean).length;
   if (restoredCount > 0) {
     console.log(`  Restored ${restoredCount}/3 child wallets from .midnight-wallet-state — sync will resume from saved point.`);
@@ -146,10 +203,8 @@ async function main() {
   // Persist sync state now so a later deploy failure doesn't waste the sync work.
   await persistWalletState(network, walletCtx);
 
-  const address = walletCtx.unshieldedKeystore.getBech32Address();
   let balance = state.unshielded.balances[unshieldedToken().raw] ?? 0n;
-  console.log(`\n  Wallet Address: ${address}`);
-  console.log(`  Balance: ${balance.toLocaleString()} tNight\n`);
+  console.log(`\n  Balance: ${balance.toLocaleString()} tNight\n`);
 
   if (network === 'undeployed' && balance === 0n) {
     console.error(
@@ -392,8 +447,10 @@ async function main() {
       // `Insufficient Funds: <huge number>` message scares first-time users.
       // Real failures still get the full diagnostic from attempt 2 onward.
       if (!(isDustShortage && attempt === 1)) {
-        console.error(`\n  Attempt ${attempt} error: ${errMsg}`);
-        if (errCause && errCause !== errMsg) console.error(`  Cause: ${errCause}`);
+        console.error(`\n  Attempt ${attempt} error: ${publicDiagnostic(errMsg)}`);
+        if (errCause && errCause !== errMsg) {
+          console.error(`  Cause: ${publicDiagnostic(errCause)}`);
+        }
       }
 
       if (
@@ -429,12 +486,27 @@ async function main() {
 
   if (!deployed) throw new Error('Deployment failed after all retries');
 
-  const contractAddress = deployed.deployTxData.public.contractAddress;
+  const {
+    contractAddress,
+    txHash: transactionHash,
+    blockHeight,
+  } = deployed.deployTxData.public;
   console.log('  ✅ Contract deployed successfully!\n');
   console.log(`  Contract Address: ${contractAddress}\n`);
 
   recordDeployment(network, contractAddress, address.toString());
   console.log('  Saved to .midnight-state.json\n');
+
+  if (network === 'preview' || network === 'preprod') {
+    writePublicDeploymentRecord({
+      network,
+      contractAddress,
+      transactionHash,
+      blockHeight,
+      deployedAt: new Date().toISOString(),
+    });
+    console.log(`  Saved public deployment proof to deployments/${network}.json\n`);
+  }
 
   await persistWalletState(network, walletCtx);
   await walletCtx.wallet.stop();
@@ -443,6 +515,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  logPublicFailure(err);
   process.exit(1);
 });

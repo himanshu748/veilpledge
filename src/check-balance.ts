@@ -27,6 +27,8 @@ async function main() {
   try {
     console.log('  Building wallet...');
     const walletCtx = await createWallet({ network, networkConfig, seed: SEED });
+    const address = walletCtx.unshieldedKeystore.getBech32Address();
+    console.log(`  Address: ${address}`);
     const restoredCount = Object.values(walletCtx.restored).filter(Boolean).length;
     if (restoredCount > 0) {
       console.log(`  Restored ${restoredCount}/3 child wallets from .midnight-wallet-state — sync will resume from saved point.`);
@@ -44,12 +46,10 @@ async function main() {
     clearInterval(syncInterval);
     process.stdout.write('\r  ✓ Synced with network.                                      \n');
 
-    const address = walletCtx.unshieldedKeystore.getBech32Address();
     const tNightBalance = state.unshielded.balances[unshieldedToken().raw] ?? 0n;
     const dustBalance = state.dust.balance(new Date());
 
     console.log('\n─── Wallet Details ─────────────────────────────────────────────\n');
-    console.log(`  Address: ${address}`);
     console.log(`  Network: ${networkConfig.networkId}\n`);
 
     console.log('─── Balances ───────────────────────────────────────────────────\n');

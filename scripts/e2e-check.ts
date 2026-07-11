@@ -49,7 +49,22 @@ function argumentValue(name: string): string | undefined {
 function loadTrackedDeployment(): PublicDeploymentRecord | null {
   const recordPath = path.join(process.cwd(), 'deployments', `${network}.json`);
   if (!fs.existsSync(recordPath)) return null;
-  return JSON.parse(fs.readFileSync(recordPath, 'utf8')) as PublicDeploymentRecord;
+
+  let record: PublicDeploymentRecord;
+  try {
+    record = JSON.parse(fs.readFileSync(recordPath, 'utf8')) as PublicDeploymentRecord;
+  } catch (error) {
+    fail(`Could not parse ${recordPath}: ${(error as Error).message}`);
+  }
+
+  if (record.network !== network) {
+    fail(`Tracked deployment network mismatch: record=${record.network}, selected=${network}`);
+  }
+  if (!isHexAddress(record.contractAddress)) {
+    fail('Tracked deployment contract address is missing or invalid');
+  }
+
+  return record;
 }
 
 async function verifyTrackedDeployment(
@@ -163,7 +178,7 @@ async function main() {
   if (hasTrackedDeployment) {
     if (tracked.transactionHash) console.log(`   deploymentTx:    ${tracked.transactionHash}`);
     if (tracked.blockHeight !== undefined) console.log(`   deploymentBlock: ${tracked.blockHeight}`);
-    console.log('   deploymentProof: Preview indexer verified');
+    console.log(`   deploymentProof: ${network} indexer verified`);
   }
 }
 
