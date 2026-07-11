@@ -73,11 +73,37 @@ jobs:
           docker compose logs proof-server
           exit 1
 
+      - name: Add wallet-sync memory headroom
+        if: steps.deployment.outputs.needed == 'true'
+        shell: bash
+        run: |
+          available_kb="$(df --output=avail / | tail -n 1)"
+          reserve_kb=$((3 * 1024 * 1024))
+          max_swap_kb=$((8 * 1024 * 1024))
+          swap_kb=$((available_kb - reserve_kb))
+
+          if (( swap_kb > max_swap_kb )); then
+            swap_kb="$max_swap_kb"
+          fi
+          if (( swap_kb < 2 * 1024 * 1024 )); then
+            echo "Insufficient disk space for at least 2 GiB of wallet-sync swap."
+            df -h /
+            exit 1
+          fi
+
+          sudo fallocate -l "${swap_kb}K" /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+          df -h /
+
       - name: Deploy to Preprod
         if: steps.deployment.outputs.needed == 'true'
         env:
           MIDNIGHT_FAUCET_TIMEOUT_MS: 2700000
-          NODE_OPTIONS: --max-old-space-size=8192
+          MALLOC_ARENA_MAX: 2
+          NODE_OPTIONS: --max-old-space-size=12288
         run: |
           echo 'The public wallet address appears near the start of this live log.'
           echo 'Fund that address at https://faucet.preprod.midnight.network while this job waits.'
