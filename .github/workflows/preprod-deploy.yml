@@ -1,0 +1,107 @@
+name: Prepare Level 2 Preprod deployment
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/preprod-deploy.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: veilpledge-preprod-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Check whether Preprod is already recorded
+        id: deployment
+        shell: bash
+        run: |
+          if test -s deployments/preprod.json; then
+            echo 'needed=false' >> "$GITHUB_OUTPUT"
+            echo 'A tracked Preprod deployment already exists.'
+          else
+            echo 'needed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Use Node 22
+        if: steps.deployment.outputs.needed == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.deployment.outputs.needed == 'true'
+        run: npm ci
+
+      - name: Install Compact 0.31.1
+        if: steps.deployment.outputs.needed == 'true'
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/compact" update 0.31.1
+          test "$("$HOME/.local/bin/compact" compile --version)" = '0.31.1'
+
+      - name: Compile contract and proving assets
+        if: steps.deployment.outputs.needed == 'true'
+        run: npm run compile
+
+      - name: Start proof server
+        if: steps.deployment.outputs.needed == 'true'
+        shell: bash
+        run: |
+          docker compose up -d proof-server
+          for attempt in $(seq 1 60); do
+            if curl --silent --show-error --max-time 3 http://127.0.0.1:6300 >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs proof-server
+          exit 1
+
+      - name: Deploy to Preprod
+        if: steps.deployment.outputs.needed == 'true'
+        env:
+          MIDNIGHT_FAUCET_TIMEOUT_MS: 2700000
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: |
+          echo 'The public wallet address appears near the start of this live log.'
+          echo 'Fund that address at https://faucet.preprod.midnight.network while this job waits.'
+          node --import tsx src/deploy.ts --network preprod
+
+      - name: Validate public deployment evidence
+        if: steps.deployment.outputs.needed == 'true'
+        shell: bash
+        run: |
+          test "$(jq -r .network deployments/preprod.json)" = 'preprod'
+          jq -e '.contractAddress | test("^[0-9a-f]{64}$")' deployments/preprod.json >/dev/null
+          jq -e '.transactionHash | test("^[0-9a-f]{64}$")' deployments/preprod.json >/dev/null
+          jq -e '.blockHeight | numbers and . > 0' deployments/preprod.json >/dev/null
+          jq . deployments/preprod.json
+
+      - name: Preserve public Preprod record
+        if: always() && steps.deployment.outputs.needed == 'true' && hashFiles('deployments/preprod.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: veilpledge-preprod-deployment
+          path: deployments/preprod.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Stop proof server
+        if: always() && steps.deployment.outputs.needed == 'true'
+        run: docker compose down

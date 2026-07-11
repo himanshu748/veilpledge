@@ -1,24 +1,40 @@
-name: Verify VeilPledge
+name: Verify and deploy VeilPledge
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  contract:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    outputs:
+      has-preprod-deployment: ${{ steps.preprod.outputs.present }}
+    permissions:
+      contents: read
+      pages: read
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Detect tracked Preprod deployment
+        id: preprod
+        shell: bash
+        run: |
+          if test -s deployments/preprod.json; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Use Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -26,19 +42,104 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Compact
+      - name: Install Compact 0.31.1
         shell: bash
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
             https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/compact" update 0.31.1
+          test "$("$HOME/.local/bin/compact" compile --version)" = "0.31.1"
 
       - name: Compile ZK circuits
         run: npm run compile
 
-      - name: Run simulator tests
-        run: npm test
+      - name: Run contract tests
+        run: npm run test:contract
 
-      - name: Type-check application
+      - name: Type-check contract application
         run: npm run typecheck
+
+      - name: Prepare browser contract artifacts
+        run: npm run web:prepare
+
+      - name: Run web tests
+        run: npm run web:test
+
+      - name: Type-check web application
+        run: npm run web:typecheck
+
+      - name: Build GitHub Pages site
+        env:
+          REQUIRE_PREPROD_DEPLOYMENT: ${{ steps.preprod.outputs.present == 'true' && '1' || '0' }}
+          VITE_BASE_PATH: /veilpledge/
+        run: npm run web:build
+
+      - name: Verify Pages artifacts
+        shell: bash
+        run: |
+          test -s web/dist/index.html
+          grep -Fq '/veilpledge/assets/' web/dist/index.html
+
+          for file in \
+            web/dist/keys/createPledge.prover \
+            web/dist/keys/createPledge.verifier \
+            web/dist/keys/completePledge.prover \
+            web/dist/keys/completePledge.verifier \
+            web/dist/zkir/createPledge.bzkir \
+            web/dist/zkir/createPledge.zkir \
+            web/dist/zkir/completePledge.bzkir \
+            web/dist/zkir/completePledge.zkir
+          do
+            test -s "$file" || {
+              echo "Missing artifact: $file"
+              exit 1
+            }
+          done
+
+          find web/dist/assets -type f -name '*.js' -print -quit | grep -q .
+
+          tracked="$(git ls-files -- \
+            contracts/managed \
+            web/public/keys \
+            web/public/zkir \
+            web/src/generated \
+            web/dist)"
+          test -z "$tracked" || {
+            echo "Generated files must not be tracked:"
+            echo "$tracked"
+            exit 1
+          }
+
+      - name: Verify tracked Preprod deployment
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && steps.preprod.outputs.present == 'true'
+        run: npm run test:e2e -- --network preprod
+
+      - name: Upload GitHub Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && steps.preprod.outputs.present == 'true'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: web/dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.verify.outputs.has-preprod-deployment == 'true'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
