@@ -280,17 +280,23 @@ gitignored `.midnight-state.json`. **Never commit or screenshot that file.**
 
 ## Level 2 evidence
 
-The fields below are deliberately left pending until a real Preprod deployment,
-Pages deployment, and recorded wallet flow have been verified. An expected URL
+The public Preprod deployment below was produced and validated by the successful
+[deployment workflow run](https://github.com/himanshu748/veilpledge/actions/runs/29143865443).
+Its retained
+[deployment artifact](https://github.com/himanshu748/veilpledge/actions/runs/29143865443/artifacts/8246435504)
+has SHA-256 digest
+`88647d75b579269d9e62a43ff1bde3b85c8e448e358ee9e88a6642a1a006ec12`.
+The Pages deployment and recorded wallet flow remain pending. An expected URL
 is not submission proof until CI has deployed it and the live page has been
 opened successfully.
 
 | Field | Current evidence |
 | --- | --- |
 | Public repository | [github.com/himanshu748/veilpledge](https://github.com/himanshu748/veilpledge) |
-| Preprod contract address | **Pending - fill from a verified `deployments/preprod.json`** |
-| Preprod deployment transaction | **Pending - fill from the indexed deployment record** |
-| Preprod deployment block | **Pending - fill from the indexed deployment record** |
+| Preprod contract address | `edb84c43287ff7f3511832a8781190d90aecf873e83b7a7e4229d1d45b7ffc84` |
+| Preprod deployment transaction | `c896b22710e25a193a0efb7e7cf5a7ffee636eb092cac997ec1bccaf3acdbd60` |
+| Preprod deployment block | `1607490` |
+| Preprod deployment time | 2026-07-11 07:43:20 UTC |
 | Live DApp | Expected after successful Pages CI: [himanshu748.github.io/veilpledge/](https://himanshu748.github.io/veilpledge/) - **not yet verified here** |
 | Successful frontend circuit transaction | **Pending - record a real Preprod create/complete transaction** |
 | Demo video | **Pending - record Lace connect plus a successful frontend circuit call** |
@@ -361,6 +367,7 @@ veilpledge/
 ├── .github/workflows/ci.yml           # Verify and deploy the Pages build
 ├── .github/workflows/preprod-deploy.yml # One-time remote Preprod deployment
 ├── contracts/veilpledge.compact       # Compact source
+├── deployments/preprod.json           # Public Preprod deployment record
 ├── deployments/preview.json           # Public Preview deployment record
 ├── scripts/
 │   ├── e2e-check.ts                    # Public deployment verification
@@ -380,9 +387,6 @@ veilpledge/
 │   └── src/test/                       # Web component tests
 └── docker-compose.yml                  # Local node/indexer/proof server
 ```
-
-A successful Level 2 deployment adds `deployments/preprod.json`; it is omitted
-from the tree above until real public values exist.
 
 ## Acknowledgements
 
