@@ -77,7 +77,9 @@ jobs:
         if: steps.deployment.outputs.needed == 'true'
         shell: bash
         run: |
-          available_kb="$(df --output=avail / | tail -n 1)"
+          swap_dir="${RUNNER_TEMP:?}"
+          swap_path="$swap_dir/veilpledge-${GITHUB_RUN_ID}.swap"
+          available_kb="$(df --output=avail "$swap_dir" | tail -n 1)"
           reserve_kb=$((3 * 1024 * 1024))
           max_swap_kb=$((8 * 1024 * 1024))
           swap_kb=$((available_kb - reserve_kb))
@@ -91,12 +93,12 @@ jobs:
             exit 1
           fi
 
-          sudo fallocate -l "${swap_kb}K" /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo fallocate -l "${swap_kb}K" "$swap_path"
+          sudo chmod 600 "$swap_path"
+          sudo mkswap "$swap_path"
+          sudo swapon "$swap_path"
           free -h
-          df -h /
+          df -h "$swap_dir"
 
       - name: Deploy to Preprod
         if: steps.deployment.outputs.needed == 'true'
