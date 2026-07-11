@@ -286,9 +286,10 @@ Its retained
 [deployment artifact](https://github.com/himanshu748/veilpledge/actions/runs/29143865443/artifacts/8246435504)
 has SHA-256 digest
 `88647d75b579269d9e62a43ff1bde3b85c8e448e358ee9e88a6642a1a006ec12`.
-The Pages deployment and recorded wallet flow remain pending. An expected URL
-is not submission proof until CI has deployed it and the live page has been
-opened successfully.
+The verified frontend bundle is deployed to Vercel production as deployment
+`dpl_6eUcjksixA957w88v26FFnS4kV2G`. The production alias returned HTTP 200 and
+was opened successfully in a browser with the Preprod contract address and
+public ledger snapshot visible. A recorded wallet flow remains pending.
 
 | Field | Current evidence |
 | --- | --- |
@@ -297,7 +298,8 @@ opened successfully.
 | Preprod deployment transaction | `c896b22710e25a193a0efb7e7cf5a7ffee636eb092cac997ec1bccaf3acdbd60` |
 | Preprod deployment block | `1607490` |
 | Preprod deployment time | 2026-07-11 07:43:20 UTC |
-| Live DApp | Expected after successful Pages CI: [himanshu748.github.io/veilpledge/](https://himanshu748.github.io/veilpledge/) - **not yet verified here** |
+| Live DApp | [veilpledge.vercel.app](https://veilpledge.vercel.app/) - verified production deployment |
+| Vercel deployment | [`dpl_6eUcjksixA957w88v26FFnS4kV2G`](https://vercel.com/himanshus-projects-acd54afd/veilpledge/6eUcjksixA957w88v26FFnS4kV2G) |
 | Successful frontend circuit transaction | **Pending - record a real Preprod create/complete transaction** |
 | Demo video | **Pending - record Lace connect plus a successful frontend circuit call** |
 
