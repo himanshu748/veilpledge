@@ -169,7 +169,17 @@ export const connectPreprodWallet = async (
     "balanceUnsealedTransaction",
     "submitTransaction",
   ];
-  await connectedAPI.hintUsage(expectedMethods);
+  try {
+    await connectedAPI.hintUsage(expectedMethods);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const unsupportedByLace =
+      connector.name === "Lace" &&
+      connector.apiVersion === "4.0.1" &&
+      /Method not implemented/i.test(message);
+
+    if (!unsupportedByLace) throw error;
+  }
 
   const [shielded, unshielded] = await Promise.all([
     connectedAPI.getShieldedAddresses(),

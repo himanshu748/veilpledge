@@ -43,6 +43,7 @@ vi.mock("../lib/private-state", () => ({
 }));
 
 import {
+  connectPreprodWallet,
   createBrowserProviders,
   WalletNetworkMismatchError,
   WalletSessionChangedError,
@@ -142,5 +143,65 @@ describe("delegated wallet transaction boundaries", () => {
 
     expect(mocks.getConnectionStatus).toHaveBeenCalledOnce();
     expect(mocks.submitTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("Lace connector compatibility", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function installConnector(hintUsage: ConnectedAPI["hintUsage"]) {
+    const connectedAPI = {
+      getConnectionStatus: vi.fn(async () => ({
+        status: "connected" as const,
+        networkId: "preprod",
+      })),
+      getConfiguration: vi.fn(async () => CONFIGURATION),
+      hintUsage,
+      getShieldedAddresses: vi.fn(async () => ({
+        shieldedAddress: SHIELDED_ADDRESS,
+        shieldedCoinPublicKey: COIN_PUBLIC_KEY,
+        shieldedEncryptionPublicKey: ENCRYPTION_PUBLIC_KEY,
+      })),
+      getUnshieldedAddress: vi.fn(async () => ({
+        unshieldedAddress: ACCOUNT_ID,
+      })),
+    } as unknown as ConnectedAPI;
+    const connector = {
+      rdns: "io.lace.wallet",
+      name: "Lace",
+      icon: "data:image/png;base64,",
+      apiVersion: "4.0.1",
+      connect: vi.fn(async () => connectedAPI),
+    } satisfies InitialAPI;
+
+    (window as unknown as { midnight: Record<string, InitialAPI> }).midnight = {
+      lace: connector,
+    };
+
+    return { connector, connectedAPI };
+  }
+
+  it("continues when Lace 4.0.1 reports hintUsage as unimplemented", async () => {
+    const hintUsage = vi.fn(async () => {
+      throw new Error("Method not implemented.");
+    });
+    const { connector } = installConnector(hintUsage);
+
+    const wallet = await connectPreprodWallet();
+
+    expect(connector.connect).toHaveBeenCalledWith("preprod");
+    expect(hintUsage).toHaveBeenCalledOnce();
+    expect(wallet.accountId).toBe(ACCOUNT_ID);
+  });
+
+  it("preserves unexpected hintUsage failures", async () => {
+    const hintUsage = vi.fn(async () => {
+      throw new Error("RPC channel closed");
+    });
+    installConnector(hintUsage);
+
+    await expect(connectPreprodWallet()).rejects.toThrow("RPC channel closed");
   });
 });
