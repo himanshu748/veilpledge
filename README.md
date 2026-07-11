@@ -8,9 +8,57 @@ witness function. The contract publishes a round-specific commitment derived
 from that secret. Later, the creator proves knowledge of the same secret in
 zero knowledge to mark the pledge complete.
 
-This Level 1 implementation deliberately keeps the product small: one pledge
-can be active at a time. The goal is to make the privacy boundary, state
-transitions, tests, and deployment evidence easy to inspect.
+The Level 2 DApp adds a React interface, Lace wallet connection, browser-side
+private state, wallet-delegated proving, and Preprod transaction submission to
+the Level 1 Compact contract. The product deliberately stays small: one pledge
+can be active at a time, so the privacy boundary and state transitions remain
+easy to inspect.
+
+## Level 2 DApp overview
+
+The browser can read the public pledge board from the Preprod indexer before a
+wallet is connected. A state-changing action then follows this flow:
+
+1. Discover a Lace-compatible Midnight DApp connector with API major version
+   4 and request `connect("preprod")`.
+2. Verify both the connection status and returned wallet configuration are for
+   Preprod.
+3. Load the compiled Compact contract and its proving material from the same
+   origin as the DApp.
+4. Ask Lace for a proving provider, balance the unsealed transaction through
+   Lace, and submit the finalized transaction through Lace.
+5. Read the confirmed public ledger state and show the transaction result.
+
+Creating a pledge calls `createPledge(goal)` from the frontend. Completing one
+calls `completePledge()` and demonstrates the privacy behavior: the public goal
+is visible to every visitor, while only the browser profile holding the
+matching private witness can produce the ownership proof.
+
+The DApp's **Disconnect** control is intentionally local. Connector API 4.x
+does not expose a standard disconnect or revoke method, so the control removes
+the in-memory VeilPledge client and subscriptions but does not revoke Lace's
+authorization. Use Lace itself to review or revoke an authorized DApp session.
+
+## Privacy claim
+
+**VeilPledge makes the pledge text, board status, sequence, completion count,
+and owner commitment public. It never writes the raw owner secret, wallet
+signing keys, or private witness to the public ledger.** The
+application-generated owner secret is encrypted at rest in account-scoped
+local private state and enters the Compact circuit only through
+`localSecretKey()`. Proving is delegated through Lace, and the DApp uses
+connector methods instead of reading signing keys.
+
+The at-rest encryption protects against casual inspection of the raw IndexedDB
+store. Its generated vault password is kept in same-origin browser storage, so
+it is not a defense against malicious script running on the DApp origin, a
+compromised browser profile, or device access. The shipped Content Security
+Policy reduces script and connection scope, but users still need to protect
+their browser profile and avoid untrusted builds.
+
+This is a contract-level privacy claim, not an anonymity guarantee for all
+metadata. Transaction timing, network activity, the deliberately public pledge
+text, and ordinary chain metadata remain observable.
 
 ## What the contract does
 
@@ -28,16 +76,29 @@ a valid ZK proof that the caller's private secret produces the same commitment.
 The sequence makes the public commitment different in every round, even when
 the same local secret is reused.
 
-## Public state vs private witness
+## DApp architecture
 
-| Data | Location | Visibility |
+| Layer | Responsibility |
+| --- | --- |
+| React UI and controller | Render public state, request wallet connection, and coordinate create/complete states |
+| Lace connector adapter | Require connector API 4.x and Preprod, obtain the proving provider, balance transactions, and submit finalized transactions |
+| Browser private-state provider | Persist the random owner secret encrypted at rest in a Lace-account-scoped local store without replacing it on reconnect |
+| Preprod public-data provider | Query and observe the deployed contract's public ledger through the Preprod indexer |
+| Generated Compact binding | Supply `localSecretKey()` as a private witness and invoke `createPledge` or `completePledge` |
+| Compact contract | Enforce one active pledge, publish the chosen goal and commitment, and verify ownership in zero knowledge |
+
+## Public state vs private data
+
+| Data | Location or custodian | Visibility |
 | --- | --- | --- |
-| Pledge text | Ledger | Public by deliberate `disclose()` |
-| Open/active state | Ledger | Public |
-| Sequence and completion count | Ledger | Public |
-| Owner commitment | Ledger | Public domain-separated hash |
-| Raw 32-byte owner secret | Encrypted private state | Local only |
-| Ownership check | Compact ZK circuit | Verified without revealing the secret |
+| Pledge text | Midnight ledger | Public by deliberate `disclose()` |
+| `OPEN`/`ACTIVE` board status | Midnight ledger | Public |
+| Sequence and completion count | Midnight ledger | Public |
+| Owner commitment | Midnight ledger | Public domain-separated hash |
+| Raw 32-byte owner secret | Encrypted browser private state | Local to the matching Lace account and browser storage |
+| `localSecretKey()` witness value | Compact witness context | Private circuit input; never written to the ledger |
+| Wallet signing keys | Lace | Never exposed to VeilPledge or the ledger |
+| Ownership check | Compact ZK circuit | Verified without revealing the secret or witness |
 
 Compact circuit inputs are private by default. `createPledge` deliberately
 discloses the pledge text and derived commitment because both become public
@@ -62,10 +123,17 @@ and the
 
 - macOS or Linux
 - Node.js 22 or newer (`.nvmrc` uses Node 22)
-- Docker Desktop with Compose v2 for the local proof server/devnet
 - Compact CLI 0.5.1 and compiler 0.31.1
-- Preview-compatible runtime: Midnight.js 4.1.1, ledger 8.1.0, and proof
-  server 8.1.0 (all pinned in this repository)
+- a Lace browser wallet exposing Midnight DApp connector API 4.x, switched to
+  Preprod and funded for Preprod transactions;
+- a working proving provider in Lace. For the current Preprod developer flow,
+  configure Lace's proof server as Local (`http://localhost:6300`) and run
+  `npm run proof-server:start` before the first create/complete transaction
+- a secure browser context with WebCrypto and persistent browser storage
+- Docker Desktop with Compose v2 for CLI deployment, the local proof server,
+  or the local devnet (the browser DApp delegates proving to Lace)
+- the pinned runtime versions in this repository: Midnight.js 4.1.1, connector
+  API 4.0.1, ledger 8.1.0, and proof server 8.1.0
 
 Install Compact using the current official command:
 
@@ -81,19 +149,21 @@ compact compile --version
 
 ```bash
 nvm use
-npm install
+npm ci
 npm run compile
 npm test
 npm run typecheck
+npm run web:typecheck
 ```
 
 The compiler writes generated contract code, ZK IR, and proving/verifying keys
 to `contracts/managed/veilpledge/`. Generated artifacts are gitignored and must
-be recreated from the Compact source.
+be recreated from the Compact source. `npm test` runs both the Compact/private
+state suite and the web component suite.
 
-The suite has ten tests: seven Compact simulator checks plus three checks that
-private-state passwords are strong and validated before deployment. The
-contract checks cover:
+The contract/private-state suite has ten tests: seven Compact simulator checks
+plus three checks that private-state passwords are strong and validated before
+deployment. The contract checks cover:
 
 - deterministic initialization;
 - public pledge creation and unchanged local private state;
@@ -102,6 +172,38 @@ contract checks cover:
 - successful creator completion;
 - rejection when no pledge is active; and
 - commitment rotation between rounds.
+
+## Run and build the DApp
+
+Compile the contract first, then start the Vite development server:
+
+```bash
+npm run compile
+npm run web:dev
+```
+
+`web:dev` copies the generated contract module, ZK IR, proving/verifying keys,
+and public Preprod deployment metadata into gitignored web build directories.
+The local DApp is served at `http://127.0.0.1:4173/`.
+
+Create and preview the same sub-path build used by GitHub Pages:
+
+```bash
+VITE_BASE_PATH=/veilpledge/ npm run web:build
+npm run web:preview
+```
+
+The complete verification sequence is:
+
+```bash
+npm run compile
+npm run test:contract
+npm run typecheck
+npm run web:prepare
+npm run web:test
+npm run web:typecheck
+VITE_BASE_PATH=/veilpledge/ npm run web:build
+```
 
 ## Local deployment
 
@@ -116,6 +218,30 @@ npm run cli
 `npm run setup` starts the bundled local node, indexer, and pinned proof server,
 compiles the contract, creates encrypted private state, and deploys it with the
 prefunded development wallet.
+
+## Preprod deployment for Level 2
+
+The Level 2 DApp is fixed to Preprod. To create its public deployment record,
+run:
+
+```bash
+npm run setup -- --network preprod
+npm run test:e2e -- --network preprod
+```
+
+On first use, setup creates a local Preprod deployment wallet, prints its
+address and the [Preprod faucet](https://faucet.preprod.midnight.network/),
+waits for funding, and deploys after the wallet has synchronized. A successful
+deployment writes only public evidence - network, contract address,
+transaction hash, block height, and deployment time - to
+`deployments/preprod.json`. The DApp build reads that record through
+`npm run web:prepare`.
+
+The deploy command also keeps the wallet seed and encrypted private state in
+gitignored local files. **Never commit, publish, paste, or screenshot
+`.midnight-state.json`, `.midnight-wallet-state`, or `midnight-level-db`.** The
+public `deployments/preprod.json` record must be independently checked with the
+Preprod indexer before its values are added to submission evidence.
 
 ## Preview deployment
 
@@ -145,9 +271,25 @@ npm run cli -- --network preview
 
 The deploy command writes network, contract address, and wallet seed to the
 gitignored `.midnight-state.json`. **Never commit or screenshot that file.**
-Copy only the network and contract address into the evidence section below.
 
-## Deployment evidence
+## Level 2 evidence
+
+The fields below are deliberately left pending until a real Preprod deployment,
+Pages deployment, and recorded wallet flow have been verified. An expected URL
+is not submission proof until CI has deployed it and the live page has been
+opened successfully.
+
+| Field | Current evidence |
+| --- | --- |
+| Public repository | [github.com/himanshu748/veilpledge](https://github.com/himanshu748/veilpledge) |
+| Preprod contract address | **Pending - fill from a verified `deployments/preprod.json`** |
+| Preprod deployment transaction | **Pending - fill from the indexed deployment record** |
+| Preprod deployment block | **Pending - fill from the indexed deployment record** |
+| Live DApp | Expected after successful Pages CI: [himanshu748.github.io/veilpledge/](https://himanshu748.github.io/veilpledge/) - **not yet verified here** |
+| Successful frontend circuit transaction | **Pending - record a real Preprod create/complete transaction** |
+| Demo video | **Pending - record Lace connect plus a successful frontend circuit call** |
+
+## Level 1 Preview deployment evidence
 
 | Field | Value |
 | --- | --- |
@@ -182,17 +324,26 @@ added.
 - [x] Contract deployed to Preview or Preprod
 - [x] Public contract address added above
 - [x] Compile, tests, and on-chain deployment verification screenshots added
-- [ ] Public GitHub repository connected to Rise In
+- [x] Public GitHub repository connected to Rise In
 
 ## Limitations and next steps
 
 - The pledge text is intentionally public.
-- Only one pledge can be active in this Level 1 contract.
-- Losing the encrypted local secret prevents completion.
+- Only one pledge can be active in the current contract.
+- Any caller can occupy that single public slot. There is no timeout or admin
+  recovery circuit, so a caller who loses private state can lock this demo
+  deployment in `ACTIVE`; production designs need per-user boards or expiry.
+- Losing or clearing the encrypted browser private state prevents the original
+  owner from completing an active pledge.
+- The in-app disconnect control does not revoke the authorization stored by
+  Lace; session management remains a wallet action.
 - The contract proves that the original creator invoked completion; it cannot
   prove that a real-world activity actually happened.
 - Transaction timing and ordinary chain metadata are outside this contract's
   privacy guarantee.
+- The self-only browser Content Security Policy permits JavaScript dynamic
+  evaluation because the current Midnight wasm-bindgen runtime requires it;
+  this weakens protection against a same-origin script compromise.
 
 A later version can add multiple pledges, deadlines, recovery keys, and
 selectively disclosed or encrypted pledge text.
@@ -201,19 +352,31 @@ selectively disclosed or encrypted pledge text.
 
 ```text
 veilpledge/
-├── contracts/veilpledge.compact      # Compact source
+├── .github/workflows/ci.yml           # Verify and deploy the Pages build
+├── .github/workflows/preprod-deploy.yml # One-time remote Preprod deployment
+├── contracts/veilpledge.compact       # Compact source
 ├── deployments/preview.json           # Public Preview deployment record
-├── scripts/e2e-check.ts               # Public deployment verification
+├── scripts/
+│   ├── e2e-check.ts                    # Public deployment verification
+│   └── prepare-web-assets.mjs          # Copy generated contract/ZK assets
 ├── src/
 │   ├── private-state.ts               # Local secret and witness
 │   ├── compiled-contract.ts           # Generated-contract binding
 │   ├── deploy.ts                      # Local/Preview/Preprod deployment
 │   └── cli.ts                         # Create, complete, and inspect pledges
-├── tests/                              # Simulator and privacy tests
 ├── docs/evidence/                      # Literal command transcripts
 ├── docs/screenshots/                   # Submission evidence
+├── tests/                              # Simulator and privacy tests
+├── web/
+│   ├── src/controller/                 # DApp state and user-action flow
+│   ├── src/lib/                        # Lace, provider, and contract adapters
+│   ├── src/components/                 # Responsive interface components
+│   └── src/test/                       # Web component tests
 └── docker-compose.yml                  # Local node/indexer/proof server
 ```
+
+A successful Level 2 deployment adds `deployments/preprod.json`; it is omitted
+from the tree above until real public values exist.
 
 ## Acknowledgements
 
