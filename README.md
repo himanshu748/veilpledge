@@ -1,5 +1,9 @@
 # VeilPledge
 
+[![Verify VeilPledge](https://github.com/himanshu748/veilpledge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/himanshu748/veilpledge/actions/workflows/ci.yml)
+
+**Live demo:** [veilpledge.vercel.app](https://veilpledge.vercel.app/)
+
 VeilPledge is a privacy-preserving accountability primitive built on
 [Midnight](https://midnight.network). A user publishes a public pledge without
 publishing an identity or secret. A random 32-byte secret stays in encrypted
@@ -39,11 +43,31 @@ does not expose a standard disconnect or revoke method, so the control removes
 the in-memory VeilPledge client and subscriptions but does not revoke Lace's
 authorization. Use Lace itself to review or revoke an authorized DApp session.
 
-## Privacy claim
+## Privacy model
 
 **VeilPledge makes the pledge text, board status, sequence, completion count,
 and owner commitment public. It never writes the raw owner secret, wallet
-signing keys, or private witness to the public ledger.** The
+signing keys, or private witness to the public ledger.**
+
+What an observer of the public ledger **can** learn:
+
+- the deliberately disclosed pledge text and whether the board is
+  `OPEN` or `ACTIVE`;
+- the current sequence number and the total number of completed pledges;
+- a domain-separated owner commitment that changes every round; and
+- ordinary chain metadata such as transaction timing.
+
+What an observer **cannot** learn:
+
+- the raw 32-byte owner secret behind the commitment;
+- which Lace account or person created or completed a pledge (beyond what
+  ordinary chain metadata reveals);
+- the private witness value passed to the circuit, which never leaves the
+  proof; and
+- whether two pledges in different rounds were created by the same secret,
+  because the sequence-salted commitment differs every round.
+
+The
 application-generated owner secret is encrypted at rest in account-scoped
 local private state and enters the Compact circuit only through
 `localSecretKey()`. Proving is delegated through Lace, and the DApp uses
@@ -341,6 +365,20 @@ added.
 - [x] Compile, tests, and on-chain deployment verification screenshots added
 - [x] Public GitHub repository connected to Rise In
 
+## Level 3 submission checklist
+
+- [x] Fully functional dApp that meaningfully uses Midnight's privacy model
+      ([live demo](https://veilpledge.vercel.app/))
+- [x] Minimum 3 tests passing — ten contract/private-state tests plus the web
+      component suite ([`tests.png`](docs/screenshots/tests.png))
+- [x] CI/CD pipeline compiling and testing on every push
+      ([workflow](.github/workflows/ci.yml), badge above)
+- [x] README privacy model section: what an observer can and cannot learn
+- [x] Minimum 10 meaningful commits
+- [ ] Product proposal from the provided idea list submitted for approval —
+      [Private Allowlist Access proposal](docs/proposal.md)
+- [ ] 1-minute demo video showing full functionality
+
 ## Limitations and next steps
 
 - The pledge text is intentionally public.
@@ -380,6 +418,7 @@ veilpledge/
 │   ├── compiled-contract.ts           # Generated-contract binding
 │   ├── deploy.ts                      # Local/Preview/Preprod deployment
 │   └── cli.ts                         # Create, complete, and inspect pledges
+├── docs/proposal.md                    # Level 3 product proposal
 ├── docs/evidence/                      # Literal command transcripts
 ├── docs/screenshots/                   # Submission evidence
 ├── tests/                              # Simulator and privacy tests
