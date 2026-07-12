@@ -186,10 +186,10 @@ npm run web:dev
 and public Preprod deployment metadata into gitignored web build directories.
 The local DApp is served at `http://127.0.0.1:4173/`.
 
-Create and preview the same sub-path build used by GitHub Pages:
+Create and preview the same production build served by Vercel:
 
 ```bash
-VITE_BASE_PATH=/veilpledge/ npm run web:build
+npm run web:build
 npm run web:preview
 ```
 
@@ -202,7 +202,7 @@ npm run typecheck
 npm run web:prepare
 npm run web:test
 npm run web:typecheck
-VITE_BASE_PATH=/veilpledge/ npm run web:build
+npm run web:build
 ```
 
 ## Local deployment
@@ -286,10 +286,11 @@ Its retained
 [deployment artifact](https://github.com/himanshu748/veilpledge/actions/runs/29143865443/artifacts/8246435504)
 has SHA-256 digest
 `88647d75b579269d9e62a43ff1bde3b85c8e448e358ee9e88a6642a1a006ec12`.
-The verified frontend bundle is deployed to Vercel production as deployment
-`dpl_6eUcjksixA957w88v26FFnS4kV2G`. The production alias returned HTTP 200 and
-was opened successfully in a browser with the Preprod contract address and
-public ledger snapshot visible. A recorded wallet flow remains pending.
+The current Vercel production deployment is
+`dpl_CZGGn4jnFibobQ5Ccae2BgHy528J`, built from `main` commit `080766b`, which
+includes the Lace 4.0.1 `hintUsage` compatibility fix. The production alias
+returns HTTP 200 with the Preprod contract address and public ledger snapshot
+visible. A recorded wallet flow remains pending.
 
 | Field | Current evidence |
 | --- | --- |
@@ -299,7 +300,7 @@ public ledger snapshot visible. A recorded wallet flow remains pending.
 | Preprod deployment block | `1607490` |
 | Preprod deployment time | 2026-07-11 07:43:20 UTC |
 | Live DApp | [veilpledge.vercel.app](https://veilpledge.vercel.app/) - verified production deployment |
-| Vercel deployment | [`dpl_6eUcjksixA957w88v26FFnS4kV2G`](https://vercel.com/himanshus-projects-acd54afd/veilpledge/6eUcjksixA957w88v26FFnS4kV2G) |
+| Vercel deployment | [`dpl_CZGGn4jnFibobQ5Ccae2BgHy528J`](https://vercel.com/himanshus-projects-acd54afd/veilpledge/CZGGn4jnFibobQ5Ccae2BgHy528J) |
 | Successful frontend circuit transaction | **Pending - record a real Preprod create/complete transaction** |
 | Demo video | **Pending - record Lace connect plus a successful frontend circuit call** |
 
@@ -366,7 +367,7 @@ selectively disclosed or encrypted pledge text.
 
 ```text
 veilpledge/
-├── .github/workflows/ci.yml           # Verify and deploy the Pages build
+├── .github/workflows/ci.yml           # Verify contract, tests, and web build
 ├── .github/workflows/preprod-deploy.yml # One-time remote Preprod deployment
 ├── contracts/veilpledge.compact       # Compact source
 ├── deployments/preprod.json           # Public Preprod deployment record
