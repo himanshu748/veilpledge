@@ -1,4 +1,4 @@
-name: Verify and deploy VeilPledge
+name: Verify VeilPledge
 
 on:
   push:
@@ -13,11 +13,6 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    outputs:
-      has-preprod-deployment: ${{ steps.preprod.outputs.present }}
-    permissions:
-      contents: read
-      pages: read
 
     steps:
       - name: Check out repository
@@ -69,17 +64,16 @@ jobs:
       - name: Type-check web application
         run: npm run web:typecheck
 
-      - name: Build GitHub Pages site
+      - name: Build production site
         env:
           REQUIRE_PREPROD_DEPLOYMENT: ${{ steps.preprod.outputs.present == 'true' && '1' || '0' }}
-          VITE_BASE_PATH: /veilpledge/
         run: npm run web:build
 
-      - name: Verify Pages artifacts
+      - name: Verify production bundle
         shell: bash
         run: |
           test -s web/dist/index.html
-          grep -Fq '/veilpledge/assets/' web/dist/index.html
+          grep -Fq '/assets/' web/dist/index.html
 
           for file in \
             web/dist/keys/createPledge.prover \
@@ -115,31 +109,10 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && steps.preprod.outputs.present == 'true'
         run: npm run test:e2e -- --network preprod
 
-      - name: Upload GitHub Pages artifact
+      - name: Upload verified production bundle
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && steps.preprod.outputs.present == 'true'
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-artifact@v4
         with:
+          name: veilpledge-web-dist
           path: web/dist
-
-  deploy:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.verify.outputs.has-preprod-deployment == 'true'
-    needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      pages: write
-      id-token: write
-    concurrency:
-      group: github-pages
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          retention-days: 7
