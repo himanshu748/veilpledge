@@ -30,6 +30,7 @@ import type {
 
 type PublicOrConnectedState = VeilPledgePublicState | VeilPledgeState;
 type RetryAction = "connect" | "create" | "complete";
+type LedgerLoadState = "Loading" | "Ready" | "Unavailable";
 
 class ConnectionCancelledError extends Error {
   override readonly name = "ConnectionCancelledError";
@@ -60,7 +61,7 @@ type Interaction =
 
 const DEFAULT_DRAFT = "Ship the VeilPledge beta";
 const PREPROD_EXPLORER_URL = "https://preprod.midnightexplorer.com/";
-const EMPTY_LEDGER: LedgerSnapshot = {
+const UNAVAILABLE_LEDGER: LedgerSnapshot = {
   boardStatus: "Unavailable",
   sequence: "—",
   completed: "—",
@@ -134,8 +135,15 @@ const toErrorInteraction = (error: unknown): Extract<Interaction, { kind: "error
   };
 };
 
-const toLedgerSnapshot = (state?: PublicOrConnectedState): LedgerSnapshot => {
-  if (!state) return EMPTY_LEDGER;
+const toLedgerSnapshot = (
+  state: PublicOrConnectedState | undefined,
+  loadState: LedgerLoadState,
+): LedgerSnapshot => {
+  if (loadState !== "Ready" || !state) {
+    return loadState === "Loading"
+      ? { ...UNAVAILABLE_LEDGER, boardStatus: "Loading" }
+      : UNAVAILABLE_LEDGER;
+  }
   return {
     boardStatus: state.status === "active" ? "Active" : "Open",
     sequence: state.sequence.toString(),
@@ -172,6 +180,8 @@ export function useVeilPledge(): VeilPledgeController {
   const [draft, setDraft] = useState(DEFAULT_DRAFT);
   const [walletAddress, setWalletAddress] = useState<string>();
   const [snapshot, setSnapshotState] = useState<PublicOrConnectedState>();
+  const [ledgerLoadState, setLedgerLoadState] =
+    useState<LedgerLoadState>("Loading");
   const [interaction, setInteraction] = useState<Interaction>({ kind: "idle" });
 
   const mountedRef = useRef(true);
@@ -185,7 +195,10 @@ export function useVeilPledge(): VeilPledgeController {
 
   const updateSnapshot = useCallback((next: PublicOrConnectedState) => {
     snapshotRef.current = next;
-    if (mountedRef.current) setSnapshotState(next);
+    if (mountedRef.current) {
+      setSnapshotState(next);
+      setLedgerLoadState("Ready");
+    }
   }, []);
 
   const invalidateWalletSession = useCallback(() => {
@@ -213,7 +226,10 @@ export function useVeilPledge(): VeilPledgeController {
   }, [invalidateWalletSession]);
 
   const readPublicState = useCallback(async () => {
-    if (!deploymentIsValid) return;
+    if (!deploymentIsValid) {
+      if (mountedRef.current) setLedgerLoadState("Unavailable");
+      return;
+    }
     try {
       const state = await queryPreprodPublicState(
         PREPROD_DEPLOYMENT.contractAddress,
@@ -222,6 +238,9 @@ export function useVeilPledge(): VeilPledgeController {
     } catch {
       // The app remains usable for a wallet retry when the public indexer is
       // briefly unavailable. A connected action will surface a concrete error.
+      if (!clientRef.current && mountedRef.current) {
+        setLedgerLoadState("Unavailable");
+      }
     }
   }, [updateSnapshot]);
 
@@ -439,9 +458,9 @@ export function useVeilPledge(): VeilPledgeController {
             }
           : {}),
       },
-      ledger: toLedgerSnapshot(snapshot),
+      ledger: toLedgerSnapshot(snapshot, ledgerLoadState),
     }),
-    [snapshot],
+    [ledgerLoadState, snapshot],
   );
 
   const viewModel = useMemo<VeilPledgeViewModel>(() => {
@@ -537,7 +556,11 @@ export function useVeilPledge(): VeilPledgeController {
       onMakeAnotherPledge: makeAnother,
       onRetry: retry,
       onCopyCommitment: (commitment) => {
-        void globalThis.navigator?.clipboard?.writeText(commitment);
+        const clipboard = globalThis.navigator?.clipboard;
+        if (!clipboard?.writeText) {
+          return Promise.reject(new Error("Clipboard access is unavailable."));
+        }
+        return clipboard.writeText(commitment);
       },
     }),
     [completePledge, connect, createPledge, disconnect, makeAnother, retry],

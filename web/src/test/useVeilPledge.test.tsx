@@ -199,6 +199,57 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("useVeilPledge", () => {
+  it("shows the public ledger as loading until its first state is ready", async () => {
+    const publicState = deferred<VeilPledgePublicState>();
+    mockedQueryPublicState.mockImplementation(() => publicState.promise);
+    const { result } = renderHook(() => useVeilPledge());
+
+    expect(result.current.viewModel.ledger).toMatchObject({
+      boardStatus: "Loading",
+      sequence: "—",
+      completed: "—",
+      ownerCommitment: "Not indexed",
+    });
+
+    await act(async () => {
+      publicState.resolve(OPEN_PUBLIC_STATE);
+      await publicState.promise;
+    });
+    await waitFor(() => {
+      expect(result.current.viewModel.ledger.boardStatus).toBe("Open");
+    });
+  });
+
+  it("marks a failed public read unavailable without blocking a wallet retry", async () => {
+    mockedQueryPublicState.mockRejectedValue(
+      new Error("The Preprod indexer is temporarily unavailable."),
+    );
+    const mockClient = makeClient(CONNECTED_OPEN_STATE);
+    mockedConnectVeilPledge.mockResolvedValue(mockClient.client);
+    const { result } = renderHook(() => useVeilPledge());
+
+    await waitFor(() => {
+      expect(result.current.viewModel.ledger.boardStatus).toBe("Unavailable");
+    });
+    expect(result.current.viewModel).toMatchObject({
+      phase: "disconnected",
+      wallet: { status: "disconnected" },
+      ledger: {
+        boardStatus: "Unavailable",
+        sequence: "—",
+        completed: "—",
+        ownerCommitment: "Not indexed",
+      },
+    });
+
+    act(() => result.current.actions.onConnect?.());
+    await waitFor(() => {
+      expect(result.current.viewModel.phase).toBe("connected-open");
+    });
+    expect(result.current.viewModel.ledger.boardStatus).toBe("Open");
+    expect(mockedConnectVeilPledge).toHaveBeenCalledOnce();
+  });
+
   it("renders the public open ledger without requesting wallet access", async () => {
     const { result } = renderHook(() => useVeilPledge());
 

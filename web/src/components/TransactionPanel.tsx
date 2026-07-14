@@ -2,7 +2,6 @@ import {
   AlertCircle,
   Check,
   CheckCircle2,
-  Copy,
   ExternalLink,
   Loader2,
   RefreshCw,
@@ -11,6 +10,7 @@ import {
 } from "lucide-react";
 
 import type { SuccessTransaction } from "../types";
+import { CopyControl } from "./CopyControl";
 
 type TransactionPanelProps =
   | {
@@ -45,6 +45,13 @@ const busyCopy = {
     title: "Submitting proof to Preprod",
     message: "Waiting for the network to confirm your private completion.",
   },
+} as const;
+
+const proofSteps = ["Prepare", "Prove", "Confirm"] as const;
+const activeProofStep = {
+  creating: 0,
+  proving: 1,
+  submitting: 2,
 } as const;
 
 export function TransactionPanel(props: TransactionPanelProps) {
@@ -95,15 +102,12 @@ export function TransactionPanel(props: TransactionPanelProps) {
               <span aria-hidden="true">View transaction {transaction.label}</span>
             </span>
           )}
-          <button
-            aria-label="Copy transaction hash"
-            className="copy-button"
-            onClick={() => void globalThis.navigator?.clipboard?.writeText(transaction.hash)}
-            title="Copy transaction hash"
-            type="button"
-          >
-            <Copy aria-hidden="true" size={18} strokeWidth={1.5} />
-          </button>
+          <CopyControl
+            failureMessage="Could not copy transaction hash."
+            label="Copy transaction hash"
+            successMessage="Transaction hash copied."
+            value={transaction.hash}
+          />
         </div>
 
         <dl className="transaction-panel__block">
@@ -165,6 +169,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
   }
 
   const copy = busyCopy[props.operation];
+  const activeStep = activeProofStep[props.operation];
 
   return (
     <section
@@ -181,14 +186,26 @@ export function TransactionPanel(props: TransactionPanelProps) {
       </div>
       <p className="transaction-panel__lead">{props.message ?? copy.message}</p>
 
-      <div className="proof-progress" aria-hidden="true">
-        <span className="proof-progress__line" />
-        <span className="proof-progress__dot proof-progress__dot--done">
-          <Check size={13} strokeWidth={2} />
-        </span>
-        <span className="proof-progress__dot proof-progress__dot--active" />
-        <span className="proof-progress__dot" />
-      </div>
+      <ol aria-label="Transaction progress" className="proof-progress">
+        {proofSteps.map((step, index) => {
+          const state = index < activeStep ? "done" : index === activeStep ? "active" : "pending";
+
+          return (
+            <li
+              aria-current={state === "active" ? "step" : undefined}
+              className={`proof-progress__step proof-progress__step--${state}`}
+              key={step}
+            >
+              <span className={`proof-progress__dot proof-progress__dot--${state}`}>
+                {state === "done" ? (
+                  <Check aria-hidden="true" size={13} strokeWidth={2} />
+                ) : null}
+              </span>
+              <span className="proof-progress__label">{step}</span>
+            </li>
+          );
+        })}
+      </ol>
 
       <p className="transaction-panel__privacy">
         <CheckCircle2 aria-hidden="true" size={21} strokeWidth={1.5} />

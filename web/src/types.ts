@@ -121,7 +121,7 @@ export interface VeilPledgeActions {
   onCompletePledge?: () => void;
   onMakeAnotherPledge?: () => void;
   onRetry?: () => void;
-  onCopyCommitment?: (commitment: string) => void;
+  onCopyCommitment?: (commitment: string) => Promise<void> | void;
 }
 
 export interface VeilPledgeAppProps {

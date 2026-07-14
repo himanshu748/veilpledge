@@ -1,6 +1,5 @@
 import {
   CheckCircle2,
-  Copy,
   Fingerprint,
   Grid2X2,
   Hash,
@@ -8,13 +7,16 @@ import {
 } from "lucide-react";
 
 import type { LedgerSnapshot } from "../types";
+import { CopyControl } from "./CopyControl";
 
 interface LedgerRailProps {
   ledger: LedgerSnapshot;
-  onCopyCommitment?: (commitment: string) => void;
+  onCopyCommitment?: (commitment: string) => Promise<void> | void;
 }
 
 export function LedgerRail({ ledger, onCopyCommitment }: LedgerRailProps) {
+  const copyCommitment =
+    ledger.ownerCommitment === "Not indexed" ? undefined : onCopyCommitment;
   const items = [
     {
       label: "Board status",
@@ -37,7 +39,12 @@ export function LedgerRail({ ledger, onCopyCommitment }: LedgerRailProps) {
   ] as const;
 
   return (
-    <section className="ledger-rail" aria-label="Public pledge ledger snapshot">
+    <section
+      aria-busy={ledger.boardStatus === "Loading" || undefined}
+      aria-label="Public pledge ledger snapshot"
+      aria-live="polite"
+      className={`ledger-rail ledger-rail--${ledger.boardStatus.toLowerCase()}`}
+    >
       <dl className="ledger-rail__list">
         {items.map(({ label, value, icon: ItemIcon, tone }) => (
           <div className={`ledger-item ledger-item--${tone}`} key={label}>
@@ -62,16 +69,14 @@ export function LedgerRail({ ledger, onCopyCommitment }: LedgerRailProps) {
               <span title={ledger.ownerCommitment}>
                 {ledger.ownerCommitmentLabel ?? ledger.ownerCommitment}
               </span>
-              {onCopyCommitment ? (
-                <button
-                  aria-label="Copy owner commitment"
-                  className="copy-button"
-                  onClick={() => onCopyCommitment(ledger.ownerCommitment)}
-                  title="Copy owner commitment"
-                  type="button"
-                >
-                  <Copy aria-hidden="true" size={18} strokeWidth={1.5} />
-                </button>
+              {copyCommitment ? (
+                <CopyControl
+                  failureMessage="Could not copy owner commitment."
+                  label="Copy owner commitment"
+                  onCopy={copyCommitment}
+                  successMessage="Owner commitment copied."
+                  value={ledger.ownerCommitment}
+                />
               ) : null}
             </dd>
           </div>

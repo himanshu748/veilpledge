@@ -196,6 +196,27 @@ function atomicVisibleCopy(container: HTMLElement) {
 }
 
 describe("VeilPledge application states", () => {
+  it("announces the public ledger load without exposing an invalid copy action", () => {
+    renderApp({
+      ...disconnectedView(),
+      ledger: {
+        boardStatus: "Loading",
+        sequence: "—",
+        completed: "—",
+        ownerCommitment: "Not indexed",
+      },
+    });
+
+    const ledger = screen.getByRole("region", {
+      name: "Public pledge ledger snapshot",
+    });
+    expect(ledger).toHaveAttribute("aria-busy", "true");
+    expect(within(ledger).getByText("Loading")).toBeInTheDocument();
+    expect(
+      within(ledger).queryByRole("button", { name: "Copy owner commitment" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders the accepted disconnected/open concept with an exact copy inventory", () => {
     const { container } = renderApp(disconnectedView());
 
@@ -421,22 +442,25 @@ describe("VeilPledge application states", () => {
       pledgeText: undefined,
       actionName: "Creating pledge…",
       panelName: "Creating private pledge",
+      activeStep: "Prepare",
     },
     {
       operation: "proving",
       pledgeText: "Ship the VeilPledge beta",
       actionName: "Generating proof…",
       panelName: "Proving private ownership",
+      activeStep: "Prove",
     },
     {
       operation: "submitting",
       pledgeText: "Ship the VeilPledge beta",
       actionName: "Submitting proof…",
       panelName: "Submitting proof to Preprod",
+      activeStep: "Confirm",
     },
   ] as const)(
     "renders explicit, non-interactive $operation progress",
-    async ({ operation, pledgeText, actionName, panelName }) => {
+    async ({ operation, pledgeText, actionName, panelName, activeStep }) => {
       const user = userEvent.setup();
       const onCreatePledge = vi.fn();
       const onCompletePledge = vi.fn();
@@ -450,6 +474,13 @@ describe("VeilPledge application states", () => {
       const progressPanel = screen.getByRole("region", { name: panelName });
       expect(progressPanel).toHaveAttribute("aria-live", "polite");
       expect(progressPanel).toHaveAttribute("aria-busy", "true");
+      const progress = within(progressPanel).getByRole("list", {
+        name: "Transaction progress",
+      });
+      expect(within(progress).getByText(activeStep).closest("li")).toHaveAttribute(
+        "aria-current",
+        "step",
+      );
 
       const action = screen.getByRole("button", { name: actionName });
       expect(action).toBeDisabled();

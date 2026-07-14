@@ -18,9 +18,17 @@ export function PledgeComposer({
   onCreate,
 }: PledgeComposerProps) {
   const remainingValue = value.slice(0, MAX_PLEDGE_LENGTH);
+  const canSubmit = !disabled && remainingValue.trim().length > 0;
 
   return (
-    <section className="pledge-composer" aria-labelledby="pledge-composer-title">
+    <form
+      aria-labelledby="pledge-composer-title"
+      className="pledge-composer"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (canSubmit) onCreate?.();
+      }}
+    >
       <label className="pledge-composer__label" id="pledge-composer-title" htmlFor="pledge-copy">
         What will you finish?
       </label>
@@ -43,9 +51,8 @@ export function PledgeComposer({
 
       <button
         className="primary-action pledge-composer__action"
-        disabled={disabled || remainingValue.trim().length === 0}
-        onClick={onCreate}
-        type="button"
+        disabled={!canSubmit}
+        type="submit"
       >
         {busyLabel ? (
           <Loader2 aria-hidden="true" className="spin" size={24} strokeWidth={1.5} />
@@ -65,6 +72,6 @@ export function PledgeComposer({
           reaches the ledger.
         </span>
       </p>
-    </section>
+    </form>
   );
 }
