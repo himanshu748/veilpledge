@@ -170,7 +170,9 @@ export const connectPreprodWallet = async (
     "submitTransaction",
   ];
   try {
-    await connectedAPI.hintUsage(expectedMethods);
+    if (typeof connectedAPI.hintUsage === "function") {
+      await connectedAPI.hintUsage(expectedMethods);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const unsupportedByLace =

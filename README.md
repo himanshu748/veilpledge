@@ -18,6 +18,23 @@ the Level 1 Compact contract. The product deliberately stays small: one pledge
 can be active at a time, so the privacy boundary and state transitions remain
 easy to inspect.
 
+## Demo (Level 2)
+
+End-to-end recording of connecting Lace on Preprod, creating a private pledge,
+and completing it with a zero-knowledge ownership proof:
+[docs/demo.webm](docs/demo.webm).
+
+Everything below is on Midnight **Preprod** and verifiable on-chain:
+
+- **Deployed contract:** `edb84c43287ff7f3511832a8781190d90aecf873e83b7a7e4229d1d45b7ffc84`
+- **Create pledge tx:** `7268500adb482c14e67953884351b518584f398791bcef324d5ee6cc750cea65` (block 1,656,666)
+- **Complete pledge tx:** `4ee8fa272584e96afcce6b8d6df9f1595019e221b683c71c4a5bd69d3e816ae5` (block 1,656,672)
+
+The privacy claim in action: the pledge text ("Ship the VeilPledge beta") is
+public on the board, while completion only requires proving knowledge of the
+committed secret in zero knowledge. The secret itself is never written to the
+ledger (the completion panel reports "Secret disclosed: Never").
+
 ## Level 2 DApp overview
 
 The browser can read the public pledge board from the Preprod indexer before a
