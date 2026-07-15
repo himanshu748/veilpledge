@@ -23,7 +23,8 @@ web/src/generated/
 .env.production.local
 
 # Contract artifacts
-contracts/managed/
+# contracts/managed/ is committed so reviewers can inspect the compiled
+# circuits (contract, zkir, proving/verifying keys) without recompiling.
 
 # Deployment info
 deployment.json
