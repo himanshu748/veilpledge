@@ -4,6 +4,8 @@
 
 **Live demo:** [veilpledge.vercel.app](https://veilpledge.vercel.app/)
 
+**Build in public:** [@VeilPledge on X](https://x.com/VeilPledge)
+
 **Demo video (1 min):** [docs/demo.webm](docs/demo.webm) shows the full flow on
 Preprod: connect Lace, create a private pledge, and complete it with a
 zero-knowledge ownership proof. Verified transactions and details in
@@ -346,9 +348,10 @@ visible. A recorded wallet flow remains pending.
 | Preprod deployment block | `1607490` |
 | Preprod deployment time | 2026-07-11 07:43:20 UTC |
 | Live DApp | [veilpledge.vercel.app](https://veilpledge.vercel.app/) - verified production deployment |
+| Product X profile | [@VeilPledge](https://x.com/VeilPledge) - build-in-public profile |
 | Vercel deployment | [`dpl_CZGGn4jnFibobQ5Ccae2BgHy528J`](https://vercel.com/himanshus-projects-acd54afd/veilpledge/CZGGn4jnFibobQ5Ccae2BgHy528J) |
-| Successful frontend circuit transaction | **Pending - record a real Preprod create/complete transaction** |
-| Demo video | **Pending - record Lace connect plus a successful frontend circuit call** |
+| Successful frontend circuit transaction | Create `7268500adb482c14e67953884351b518584f398791bcef324d5ee6cc750cea65` (block 1,656,666), complete `4ee8fa272584e96afcce6b8d6df9f1595019e221b683c71c4a5bd69d3e816ae5` (block 1,656,672), both submitted from the live DApp on Preprod |
+| Demo video | [docs/demo.webm](docs/demo.webm) - Lace connect plus create and complete circuit calls on Preprod |
 
 ## Level 1 Preview deployment evidence
 
