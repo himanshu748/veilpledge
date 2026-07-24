@@ -18,10 +18,10 @@ the Level 1 Compact contract. The product deliberately stays small: one pledge
 can be active at a time, so the privacy boundary and state transitions remain
 easy to inspect.
 
-## Demo (Level 2)
+## Demo
 
-End-to-end recording of connecting Lace on Preprod, creating a private pledge,
-and completing it with a zero-knowledge ownership proof:
+One-minute end-to-end recording of connecting Lace on Preprod, creating a
+private pledge, and completing it with a zero-knowledge ownership proof:
 [docs/demo.webm](docs/demo.webm).
 
 Everything below is on Midnight **Preprod** and verifiable on-chain:
