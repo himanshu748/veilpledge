@@ -4,6 +4,11 @@
 
 **Live demo:** [veilpledge.vercel.app](https://veilpledge.vercel.app/)
 
+**Demo video (1 min):** [docs/demo.webm](docs/demo.webm) shows the full flow on
+Preprod: connect Lace, create a private pledge, and complete it with a
+zero-knowledge ownership proof. Verified transactions and details in
+[Demo](#demo) below.
+
 VeilPledge is a privacy-preserving accountability primitive built on
 [Midnight](https://midnight.network). A user publishes a public pledge without
 publishing an identity or secret. A random 32-byte secret stays in encrypted
