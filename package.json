@@ -21,6 +21,7 @@
     "test:watch": "vitest tests",
     "typecheck": "tsc --noEmit",
     "test:e2e": "tsx scripts/e2e-check.ts",
+    "users": "tsx scripts/preprod-users.ts",
     "web:prepare": "node scripts/prepare-web-assets.mjs",
     "web:dev": "npm run web:prepare && vite --config web/vite.config.ts",
     "web:typecheck": "tsc -p web/tsconfig.json --noEmit",
