@@ -289,6 +289,9 @@ describe("VeilPledge application states", () => {
       "0",
       "Owner commitment",
       "0x7a3b…c19f",
+      "Tell us what happened",
+      "Source",
+      "@VeilPledge",
     ]);
   });
 

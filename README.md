@@ -6,6 +6,9 @@
 
 **Build in public:** [@VeilPledge on X](https://x.com/VeilPledge)
 
+**Used it on Preprod?** [Send feedback](https://github.com/himanshu748/veilpledge/issues/new?template=feedback.yml).
+How reports are triaged and what changed because of them: [docs/FEEDBACK.md](docs/FEEDBACK.md).
+
 **Demo video (1 min):** [docs/demo.webm](docs/demo.webm) shows the full flow on
 Preprod: connect Lace, create a private pledge, and complete it with a
 zero-knowledge ownership proof. Verified transactions and details in

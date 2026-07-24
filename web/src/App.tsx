@@ -1,6 +1,7 @@
 import { ChevronsLeftRight } from "lucide-react";
 
 import { ActivePledge } from "./components/ActivePledge";
+import { AppFooter } from "./components/AppFooter";
 import { AppHeader } from "./components/AppHeader";
 import { CrescentMark } from "./components/CrescentMark";
 import { HeroMessage } from "./components/HeroMessage";
@@ -231,6 +232,8 @@ export function App({
           ledger={viewModel.ledger}
           onCopyCommitment={actions.onCopyCommitment}
         />
+
+        <AppFooter />
       </main>
     </div>
   );

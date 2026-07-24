@@ -1,0 +1,68 @@
+name: Feedback
+description: Tell us what happened when you used VeilPledge on Preprod
+title: "[feedback] "
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying VeilPledge. Every field except the wallet address is
+        about the product, not about you. Never paste a seed phrase, a spending
+        password, or a private key here: this issue is public, and we will
+        never ask for them.
+  - type: textarea
+    id: intent
+    attributes:
+      label: What were you trying to do
+      placeholder: Create a pledge and complete it later.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: The symptom you saw, including any error text.
+    validations:
+      required: true
+  - type: dropdown
+    id: step
+    attributes:
+      label: Where did it break
+      options:
+        - Connecting Lace
+        - Creating a pledge
+        - Completing a pledge
+        - Reading the board
+        - Somewhere else
+        - Nothing broke, this is a suggestion
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      options:
+        - Preprod
+        - Local (undeployed)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: address
+    attributes:
+      label: Wallet address (optional)
+      description: >
+        Your unshielded Midnight address, shown in the dApp once Lace is
+        connected. Share it only if you want to be counted as a Preprod user.
+        It is a public address, not a secret. Leave this blank and your
+        feedback still counts.
+      placeholder: mn_addr_test1...
+    validations:
+      required: false
+  - type: textarea
+    id: anything
+    attributes:
+      label: Anything else
+      description: Was the privacy behaviour clear? Did you trust it?
+    validations:
+      required: false

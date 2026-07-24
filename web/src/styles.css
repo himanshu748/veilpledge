@@ -249,6 +249,38 @@ a.contract-link:hover {
   padding: 0 40px 28px;
 }
 
+.app-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.app-footer__prompt {
+  margin: 0;
+}
+
+.app-footer__links {
+  display: flex;
+  gap: 20px;
+}
+
+.app-footer a {
+  color: var(--muted-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.app-footer a:hover {
+  color: var(--text);
+}
+
 .primary-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.72fr) 72px minmax(340px, 0.88fr);
